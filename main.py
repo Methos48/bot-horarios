@@ -75,6 +75,14 @@ async def on_message(message):
                         print(f"--- TEXTO EXTRAÍDO EXITOSAMENTE ---\n{extracted_text}\n-----------------------------------")
                     else:
                         print(f"⚠️ La IA no devolvió texto para la imagen: {attachment.filename}")
+
+                    # Borrar la imagen enviada por el usuario para mantener el canal limpio
+                    try:
+                        await message.delete()
+                    except discord.Forbidden:
+                        print("Aviso: El bot no tiene permisos de 'Manage Messages' (Gestionar mensajes) para borrar la imagen.")
+                    except discord.HTTPException as e:
+                        print(f"Error al intentar borrar el mensaje: {e}")
                         
                 except Exception as e:
                     print(f"Error inesperado procesando {attachment.filename}: {e}")
