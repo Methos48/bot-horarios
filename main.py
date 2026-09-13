@@ -16,6 +16,9 @@ from PIL import Image, ImageEnhance, UnidentifiedImageError
 from discord.ext import commands
 from pytesseract import TesseractError
 
+# Configurar la ruta explícita del binario de Tesseract en contenedores Linux
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 
 CHANNEL_ID = 1548412740723286147
 IMAGE_BATCH_WINDOW_SECONDS = 8
