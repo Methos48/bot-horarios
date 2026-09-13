@@ -1,4 +1,4 @@
-discord.py>=2.3,<3
-pytesseract>=0.3.10,<1
-requests>=2.31,<3
-Pillow>=10,<12
+discord.py
+google-genai
+requests
+# (y cualquier otra librería que use tu proyecto para OneDrive, ej. msal, etc.)
