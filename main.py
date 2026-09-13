@@ -10,14 +10,14 @@ intents.message_content = True
 
 client_discord = discord.Client(intents=intents)
 
-# Inicializa el cliente de la API de Gemini (toma automáticamente la GEMINI_API_KEY de las variables de entorno)
+# Inicializa el cliente de la API de Gemini
 ai_client = genai.Client()
 
 @client_discord.event
 async def on_ready():
     print(f"horario-bot: Bot conectado como {client_discord.user}")
 
-def extract_text_from_image(image_bytes: bytes, language: str = "es") -> str:
+def extract_text_from_image(image_bytes: bytes, mime_type: str = "image/png") -> str:
     """
     Extrae y analiza los horarios de la imagen utilizando la IA de Google Gemini.
     """
@@ -27,7 +27,7 @@ def extract_text_from_image(image_bytes: bytes, language: str = "es") -> str:
             contents=[
                 types.Part.from_bytes(
                     data=image_bytes,
-                    mime_type='image/png',
+                    mime_type=mime_type,
                 ),
                 (
                     "Eres un asistente experto en lectura de datos y horarios de videojuegos. "
@@ -52,21 +52,29 @@ async def on_message(message):
     # Verificar si el mensaje contiene imágenes adjuntas
     if message.attachments:
         for attachment in message.attachments:
-            if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            filename_lower = attachment.filename.lower()
+            if filename_lower.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                 print(f"Procesando imagen adjunta: {attachment.filename}")
                 try:
+                    # Detectar el mime_type correcto según la extensión del archivo
+                    mime_type = "image/png"
+                    if filename_lower.endswith(('.jpg', '.jpeg')):
+                        mime_type = "image/jpeg"
+                    elif filename_lower.endswith('.webp'):
+                        mime_type = "image/webp"
+                    elif filename_lower.endswith('.gif'):
+                        mime_type = "image/gif"
+
                     # Descargar los bytes de la imagen directamente desde Discord
                     image_bytes = await attachment.read()
                     
-                    # Llamar a la función de IA para extraer el texto/horarios
-                    extracted_text = extract_text_from_image(image_bytes)
+                    # Llamar a la función de IA
+                    extracted_text = extract_text_from_image(image_bytes, mime_type)
                     
                     if extracted_text:
-                        print(f"Texto extraído con éxito:\n{extracted_text}")
-                        # Aquí puedes continuar con tu lógica interna (ej. sincronizar a OneDrive/Excel)
-                        # Nota: Se eliminaron los mensajes automáticos de respuesta al canal de Discord.
+                        print(f"--- TEXTO EXTRAÍDO EXITOSAMENTE ---\n{extracted_text}\n-----------------------------------")
                     else:
-                        print("⚠️ No se pudo extraer texto o datos claros de la imagen.")
+                        print(f"⚠️ La IA no devolvió texto para la imagen: {attachment.filename}")
                         
                 except Exception as e:
                     print(f"Error inesperado procesando {attachment.filename}: {e}")
