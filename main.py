@@ -16,9 +16,6 @@ from PIL import Image, ImageEnhance, UnidentifiedImageError
 from discord.ext import commands
 from pytesseract import TesseractError
 
-# Configuración obligatoria para entornos Linux/Railway (Nixpacks)
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-
 
 CHANNEL_ID = 1548412740723286147
 IMAGE_BATCH_WINDOW_SECONDS = 8
