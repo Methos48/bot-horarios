@@ -12,7 +12,7 @@ import subprocess
 import discord
 import pytesseract
 import requests
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageEnhance, UnidentifiedImageError
 from discord.ext import commands
 from pytesseract import TesseractError
 
@@ -53,10 +53,21 @@ def is_image_attachment(attachment: discord.Attachment) -> bool:
 
 
 def extract_text_from_image(image_bytes: bytes) -> str:
-    """Ejecuta OCR sobre los bytes de una imagen."""
+    """Ejecuta OCR sobre los bytes de una imagen aplicando preprocesamiento de contraste."""
     with Image.open(io.BytesIO(image_bytes)) as image:
+        # Convertir a escala de grises
+        gray_image = image.convert("L")
+        
+        # Aumentar la resolución al doble para mejorar la precisión del OCR en fuentes pequeñas
+        width, height = gray_image.size
+        resized_image = gray_image.resize((width * 2, height * 2), Image.Resampling.LANCZOS)
+        
+        # Aplicar un realce de contraste fuerte para destacar las letras claras sobre el fondo oscuro
+        enhancer = ImageEnhance.Contrast(resized_image)
+        enhanced_image = enhancer.enhance(2.0)
+        
         language = os.getenv("TESSERACT_LANG", "spa+eng")
-        return pytesseract.image_to_string(image, lang=language).strip()
+        return pytesseract.image_to_string(enhanced_image, lang=language).strip()
 
 
 def download_image(url: str) -> bytes:
