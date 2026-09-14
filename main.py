@@ -16,8 +16,9 @@ app = Flask(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Nuevo canal de pruebas configurado
-DISCORD_CANAL_NOTIFICACIONES_ID = 1548528724268552263
+# IDs de los dos canales de prueba configurados
+DISCORD_CANAL_HORARIOS_ID = 1548528724268552263
+DISCORD_CANAL_RONDA_ID = 1548528618949582929
 
 WEB_RAID_URL = "https://www.l2sudamerica.com/?page=boss"
 EXCEL_URL = os.getenv(
@@ -31,8 +32,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 client_discord = discord.Client(intents=intents)
 
-# Variable para rastrear el último mensaje enviado y poder borrarlo
-ultimo_mensaje_excel_id = None
+# Variables para rastrear el último mensaje enviado en cada canal y poder borrarlos
+ultimo_mensaje_horarios_id = None
+ultimo_mensaje_ronda_id = None
+ultimo_hash_datos_web = None
 
 
 @app.route("/")
@@ -82,7 +85,7 @@ def actualizar_rango_tabla_web(wb, datos_web):
 
 
 def generar_imagen_horario_rojo(wb):
-  """Genera una tarjeta visual idéntica a la plantilla de Horario Rojo leyendo el Excel."""
+  """Genera la tarjeta visual de Horario Rojo."""
   try:
     img_width, img_height = 800, 900
     img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
@@ -95,15 +98,10 @@ def generar_imagen_horario_rojo(wb):
       font_texto = ImageFont.truetype(
           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16
       )
-      font_chica = ImageFont.truetype(
-          "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14
-      )
     except:
       font_titulo = ImageFont.load_default()
       font_texto = ImageFont.load_default()
-      font_chica = ImageFont.load_default()
 
-    # Cabecera roja superior
     draw.rectangle([0, 0, img_width, 110], fill="#8B0000")
     draw.text(
         (250, 40),
@@ -112,7 +110,6 @@ def generar_imagen_horario_rojo(wb):
         font=font_titulo,
     )
 
-    # Cabeceras de columnas
     draw.text((50, 140), "RAID", fill="#003366", font=font_texto)
     draw.text((200, 140), "DIA", fill="#003366", font=font_texto)
     draw.text((310, 140), "FECHA", fill="#003366", font=font_texto)
@@ -127,7 +124,6 @@ def generar_imagen_horario_rojo(wb):
         if "HORARIO ROJO" in wb.sheetnames
         else wb["CALCULADORA"]
     )
-
     y_offset = 200
     for row in range(10, 25):
       raid_nombre = sheet.cell(row=row, column=1).value
@@ -155,15 +151,93 @@ def generar_imagen_horario_rojo(wb):
     img.save(output_img, format="PNG")
     output_img.seek(0)
     return output_img
-
   except Exception as e:
-    print(f"❌ Error generando la imagen visual del horario: {e}")
+    print(f"❌ Error generando Horario Rojo: {e}")
+    return None
+
+
+def generar_imagen_ronda_rojo(wb):
+  """Genera la tarjeta visual de Ronda Rojo (doble columna de nivel 60+)."""
+  try:
+    img_width, img_height = 850, 950
+    img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
+    draw = ImageDraw.Draw(img)
+
+    try:
+      font_titulo = ImageFont.truetype(
+          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22
+      )
+      font_texto = ImageFont.truetype(
+          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13
+      )
+    except:
+      font_titulo = ImageFont.load_default()
+      font_texto = ImageFont.load_default()
+
+    # Cabecera roja superior
+    draw.rectangle([0, 0, img_width, 110], fill="#8B0000")
+    draw.text(
+        (250, 40),
+        "OKT Ronda Raid HTF",
+        fill="#FFD700",
+        font=font_titulo,
+    )
+
+    # Cabeceras de columnas (Bloque Izquierdo y Bloque Derecho)
+    draw.text((40, 135), "Raid", fill="#003366", font=font_texto)
+    draw.text((260, 135), "LVL", fill="#003366", font=font_texto)
+    draw.text((310, 135), "Hora", fill="#003366", font=font_texto)
+
+    draw.text((450, 135), "Raid", fill="#003366", font=font_texto)
+    draw.text((670, 135), "LVL", fill="#003366", font=font_texto)
+    draw.text((720, 135), "Hora", fill="#003366", font=font_texto)
+
+    draw.line([30, 160, 820, 160], fill="#C08040", width=2)
+
+    sheet = (
+        wb["RONDA ROJO"] if "RONDA ROJO" in wb.sheetnames else wb["CALCULADORA"]
+    )
+
+    # Bloque Izquierdo (Filas 9 a 45 aprox)
+    y_left = 180
+    for row in range(9, 30):
+      raid = sheet.cell(row=row, column=2).value
+      if not raid:
+        break
+      lvl = str(sheet.cell(row=row, column=4).value or "")
+      hora = str(sheet.cell(row=row, column=5).value or "")
+
+      draw.text((40, y_left), str(raid), fill="#003300", font=font_texto)
+      draw.text((260, y_left), lvl, fill="#003300", font=font_texto)
+      draw.text((310, y_left), hora, fill="#006600", font=font_texto)
+      y_left += 28
+
+    # Bloque Derecho
+    y_right = 180
+    for row in range(9, 35):
+      raid = sheet.cell(row=row, column=7).value
+      if not raid:
+        break
+      lvl = str(sheet.cell(row=row, column=9).value or "")
+      hora = str(sheet.cell(row=row, column=10).value or "")
+
+      draw.text((450, y_right), str(raid), fill="#003300", font=font_texto)
+      draw.text((670, y_right), lvl, fill="#003300", font=font_texto)
+      draw.text((720, y_right), hora, fill="#006600", font=font_texto)
+      y_right += 28
+
+    output_img = io.BytesIO()
+    img.save(output_img, format="PNG")
+    output_img.seek(0)
+    return output_img
+  except Exception as e:
+    print(f"❌ Error generando Ronda Rojo: {e}")
     return None
 
 
 # --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO (CADA 60 SEGUNDOS) ---
 async def bucle_monitoreo_web():
-  global ultimo_mensaje_excel_id
+  global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id, ultimo_hash_datos_web
   await client_discord.wait_until_ready()
   print("🔄 Iniciando el monitoreo automático de la página de raids (cada 60 segundos)...")
 
@@ -184,38 +258,68 @@ async def bucle_monitoreo_web():
             val_respawn = columnas[3].get_text(strip=True)
 
             if val_nombre and val_nombre.upper() != "NOMBRE":
+              # Filtramos o guardamos nivel 60+ para ronda rojo si es necesario
               datos_extraidos_web.append(
                   [val_nombre, val_level, val_status, val_respawn]
               )
 
         if datos_extraidos_web:
-          wb = descargar_excel_nube()
-          if wb and "CALCULADORA" in wb.sheetnames:
-            actualizar_rango_tabla_web(wb, datos_extraidos_web)
+          # Verificamos si los datos de la web cambiaron realmente
+          hash_actual = str(datos_extraidos_web)
+          if hash_actual != ultimo_hash_datos_web:
+            print("🔄 ¡Cambios detectados en la web de raids! Actualizando...")
+            ultimo_hash_datos_web = hash_actual
 
-            imagen_buffer = generar_imagen_horario_rojo(wb)
+            wb = descargar_excel_nube()
+            if wb and "CALCULADORA" in wb.sheetnames:
+              actualizar_rango_tabla_web(wb, datos_extraidos_web)
 
-            canal = client_discord.get_channel(int(DISCORD_CANAL_NOTIFICACIONES_ID))
-            if canal and imagen_buffer:
-              if ultimo_mensaje_excel_id:
-                try:
-                  msg_anterior = await canal.fetch_message(
-                      ultimo_mensaje_excel_id
-                  )
-                  await msg_anterior.delete()
-                  print("🗑️ Imagen de horario anterior borrada del canal.")
-                except Exception as ex:
-                  print(f"No se pudo borrar el mensaje anterior: {ex}")
-
-              file_to_send = discord.File(
-                  fp=imagen_buffer, filename="Horario_Rojo_Raids.png"
+              # 1. Publicar en Canal Horarios
+              img_horarios = generar_imagen_horario_rojo(wb)
+              canal_horarios = client_discord.get_channel(
+                  int(DISCORD_CANAL_HORARIOS_ID)
               )
-              nuevo_msg = await canal.send(
-                  "🔥 **HORARIOS DE RAIDS ACTUALIZADOS** (Sincronizado con la"
-                  " web):",
-                  file=file_to_send,
+              if canal_horarios and img_horarios:
+                if ultimo_mensaje_horarios_id:
+                  try:
+                    msg_ant = await canal_horarios.fetch_message(
+                        ultimo_mensaje_horarios_id
+                    )
+                    await msg_ant.delete()
+                  except:
+                    pass
+
+                f_horarios = discord.File(
+                    fp=img_horarios, filename="Horario_Rojo.png"
+                )
+                msg_h = await canal_horarios.send(
+                    "🔥 **HORARIOS DE RAIDS ACTUALIZADOS:**", file=f_horarios
+                )
+                ultimo_mensaje_horarios_id = msg_h.id
+
+              # 2. Publicar en Canal Ronda Rojo (nivel 60+)
+              img_ronda = generar_imagen_ronda_rojo(wb)
+              canal_ronda = client_discord.get_channel(
+                  int(DISCORD_CANAL_RONDA_ID)
               )
-              ultimo_mensaje_excel_id = nuevo_msg.id
+              if canal_ronda and img_ronda:
+                if ultimo_mensaje_ronda_id:
+                  try:
+                    msg_ant_r = await canal_ronda.fetch_message(
+                        ultimo_mensaje_ronda_id
+                    )
+                    await msg_ant_r.delete()
+                  except:
+                    pass
+
+                f_ronda = discord.File(
+                    fp=img_ronda, filename="Ronda_Rojo.png"
+                )
+                msg_r = await canal_ronda.send(
+                    "⚔️ **RONDA ROJO (Raids Nivel 60+) ACTUALIZADA:**",
+                    file=f_ronda,
+                )
+                ultimo_mensaje_ronda_id = msg_r.id
 
     except Exception as e:
       print(f"Error en el ciclo de monitoreo web: {e}")
@@ -232,7 +336,7 @@ async def on_ready():
 # --- PROCESAMIENTO AUTOMÁTICO DE IMÁGENES EN DISCORD ---
 @client_discord.event
 async def on_message(message):
-  global ultimo_mensaje_excel_id
+  global ultimo_mensaje_horarios_id
   if message.author == client_discord.user:
     return
 
@@ -256,30 +360,29 @@ async def on_message(message):
               ],
           )
           if response and response.text:
-            print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              imagen_buffer = generar_imagen_horario_rojo(wb)
+              img_horarios = generar_imagen_horario_rojo(wb)
 
-              if message.channel and imagen_buffer:
-                if ultimo_mensaje_excel_id:
+              if message.channel and img_horarios:
+                if ultimo_mensaje_horarios_id:
                   try:
-                    msg_anterior = await message.channel.fetch_message(
-                        ultimo_mensaje_excel_id
+                    msg_ant = await message.channel.fetch_message(
+                        ultimo_mensaje_horarios_id
                     )
-                    await msg_anterior.delete()
-                  except Exception:
+                    await msg_ant.delete()
+                  except:
                     pass
 
                 file_to_send = discord.File(
-                    fp=imagen_buffer, filename="Horario_Rojo_Raids.png"
+                    fp=img_horarios, filename="Horario_Rojo.png"
                 )
                 nuevo_msg = await message.channel.send(
                     "📸 **Horario actualizado mediante captura procesada por"
                     " IA:**",
                     file=file_to_send,
                 )
-                ultimo_mensaje_excel_id = nuevo_msg.id
+                ultimo_mensaje_horarios_id = nuevo_msg.id
 
           await message.delete()
 
