@@ -226,20 +226,24 @@ async def on_message(message):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
         try:
           image_bytes = await attachment.read()
-          # Modelo actualizado correctamente
-          response = ai_client.models.generate_content(
-              model="gemini-3.8-flash",
-              contents=[
-                  types.Part.from_bytes(
-                      data=image_bytes, mime_type="image/png"
-                  ),
-                  (
-                      "Extrae la información de los raids de la imagen en un"
-                      " formato estructurado para actualizar la pestaña"
-                      " CALCULADORA (A2:B15) del Excel."
-                  ),
-              ],
-          )
+          
+          # Función para ejecutar la IA de forma segura en un hilo separado
+          def llamar_ia():
+              return ai_client.models.generate_content(
+                  model="gemini-3.8-flash",
+                  contents=[
+                      types.Part.from_bytes(
+                          data=image_bytes, mime_type="image/png"
+                      ),
+                      (
+                          "Extrae la información de los raids de la imagen en un"
+                          " formato estructurado para actualizar la pestaña"
+                          " CALCULADORA (A2:B15) del Excel."
+                      ),
+                  ],
+              )
+
+          response = await asyncio.to_thread(llamar_ia)
 
           if response and response.text:
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
