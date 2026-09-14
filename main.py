@@ -16,8 +16,8 @@ app = Flask(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Canal fijo configurado por ti
-DISCORD_CANAL_NOTIFICACIONES_ID = 1549187543277379594
+# Nuevo canal de pruebas configurado
+DISCORD_CANAL_NOTIFICACIONES_ID = 1548528724268552263
 
 WEB_RAID_URL = "https://www.l2sudamerica.com/?page=boss"
 EXCEL_URL = os.getenv(
@@ -84,12 +84,10 @@ def actualizar_rango_tabla_web(wb, datos_web):
 def generar_imagen_horario_rojo(wb):
   """Genera una tarjeta visual idéntica a la plantilla de Horario Rojo leyendo el Excel."""
   try:
-    # Creamos un lienzo limpio con el fondo beige característico de la plantilla (#FDF3D8)
     img_width, img_height = 800, 900
     img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
     draw = ImageDraw.Draw(img)
 
-    # Intentamos cargar una fuente estándar, si no usa la por defecto
     try:
       font_titulo = ImageFont.truetype(
           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22
@@ -105,7 +103,7 @@ def generar_imagen_horario_rojo(wb):
       font_texto = ImageFont.load_default()
       font_chica = ImageFont.load_default()
 
-    # Cabecera roja superior similar a la imagen
+    # Cabecera roja superior
     draw.rectangle([0, 0, img_width, 110], fill="#8B0000")
     draw.text(
         (250, 40),
@@ -122,17 +120,14 @@ def generar_imagen_horario_rojo(wb):
     draw.text((640, 140), "VEN", fill="#006600", font=font_texto)
     draw.text((720, 140), "ESP", fill="#006600", font=font_texto)
 
-    # Línea divisoria
     draw.line([30, 175, 770, 175], fill="#C08040", width=2)
 
-    # Intentamos leer los datos de la pestaña HORARIO ROJO si existe, o simulamos con CALCULADORA
     sheet = (
         wb["HORARIO ROJO"]
         if "HORARIO ROJO" in wb.sheetnames
         else wb["CALCULADORA"]
     )
 
-    # Pintamos filas de ejemplo/datos extraídos del Excel de forma dinámica
     y_offset = 200
     for row in range(10, 25):
       raid_nombre = sheet.cell(row=row, column=1).value
@@ -145,7 +140,6 @@ def generar_imagen_horario_rojo(wb):
       ven = str(sheet.cell(row=row, column=7).value or "17:00")
       esp = str(sheet.cell(row=row, column=8).value or "23:00")
 
-      # Color condicional similar al diseño (Rojo para algunos especiales, verde para normales)
       color_texto = "#CC0000" if row in [13, 19, 22, 23] else "#003300"
 
       draw.text((50, y_offset), str(raid_nombre), fill=color_texto, font=font_texto)
@@ -157,7 +151,6 @@ def generar_imagen_horario_rojo(wb):
 
       y_offset += 35
 
-    # Guardamos en memoria RAM como imagen PNG
     output_img = io.BytesIO()
     img.save(output_img, format="PNG")
     output_img.seek(0)
@@ -200,12 +193,10 @@ async def bucle_monitoreo_web():
           if wb and "CALCULADORA" in wb.sheetnames:
             actualizar_rango_tabla_web(wb, datos_extraidos_web)
 
-            # Generamos la imagen visual exacta del horario rojo
             imagen_buffer = generar_imagen_horario_rojo(wb)
 
             canal = client_discord.get_channel(int(DISCORD_CANAL_NOTIFICACIONES_ID))
             if canal and imagen_buffer:
-              # Borramos el mensaje anterior del bot si existe para mantener el chat limpio
               if ultimo_mensaje_excel_id:
                 try:
                   msg_anterior = await canal.fetch_message(
@@ -214,12 +205,8 @@ async def bucle_monitoreo_web():
                   await msg_anterior.delete()
                   print("🗑️ Imagen de horario anterior borrada del canal.")
                 except Exception as ex:
-                  print(
-                      f"No se pudo borrar el mensaje anterior (posiblemente ya"
-                      f" fue borrado): {ex}"
-                  )
+                  print(f"No se pudo borrar el mensaje anterior: {ex}")
 
-              # Enviamos la nueva imagen generada
               file_to_send = discord.File(
                   fp=imagen_buffer, filename="Horario_Rojo_Raids.png"
               )
@@ -272,7 +259,6 @@ async def on_message(message):
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              # Generamos y publicamos la nueva imagen actualizada tras procesar la captura
               imagen_buffer = generar_imagen_horario_rojo(wb)
 
               if message.channel and imagen_buffer:
