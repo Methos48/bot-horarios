@@ -54,7 +54,8 @@ def descargar_excel_nube():
 def actualizar_rango_tabla_web(wb, datos_web):
   """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA
 
-  con los datos obtenidos de la página web del juego.
+  con los datos obtenidos de la página web del juego (Nombre, Level, Status,
+  Respawn).
   """
   try:
     sheet = wb["CALCULADORA"]
@@ -72,7 +73,10 @@ def actualizar_rango_tabla_web(wb, datos_web):
       for col_offset, valor in enumerate(fila_datos):
         sheet.cell(row=fila_idx, column=1 + col_offset).value = valor
 
-    print("✅ Rango inferior (A31:D189) actualizado con los datos de la web.")
+    print(
+        "✅ Rango inferior (A31:D189) actualizado con éxito desde la web del"
+        " juego."
+    )
     return True
   except Exception as e:
     print(f"❌ Error al actualizar el rango web A31:D189: {e}")
@@ -120,22 +124,41 @@ async def bucle_monitoreo_web():
       response = requests.get(WEB_RAID_URL, timeout=15)
       if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
-        print("🌐 Página del juego consultada. Verificando cambios...")
 
-        # Aquí procesarías el HTML de la sopa para extraer los datos en bruto
-        # Ejemplo simulado de datos estructurados para la tabla A31:D189:
-        # datos_extraidos_web = [ [colA, colB, colC, colD], ... ]
+        # Buscamos las filas de la tabla de raids de la página web
+        # (Esto extrae ordenadamente cada fila de la tabla inferior que me mostraste)
+        filas_tabla = soup.find_all("tr")
+        datos_extraidos_web = []
 
-        wb = descargar_excel_nube()
-        if wb and "CALCULADORA" in wb.sheetnames:
-          # Si deseas aplicar la actualización automática en el Excel:
-          # actualizar_rango_tabla_web(wb, datos_extraidos_web)
-          pass
+        for fila in filas_tabla:
+          columnas = fila.find_all(["td", "th"])
+          if len(columnas) >= 4:
+            # Extraemos los 4 valores correspondientes: Nombre, Level, Status, Respawn
+            val_nombre = columnas[0].get_text(strip=True)
+            val_level = columnas[1].get_text(strip=True)
+            val_status = columnas[2].get_text(strip=True)
+            val_respawn = columnas[3].get_text(strip=True)
+
+            # Evitamos capturar la cabecera de la tabla
+            if val_nombre and val_nombre.upper() != "NOMBRE":
+              datos_extraidos_web.append(
+                  [val_nombre, val_level, val_status, val_respawn]
+              )
+
+        if datos_extraidos_web:
+          print(
+              f"🌐 Se extrajeron {len(datos_extraidos_web)} registros de raids"
+              " de la web."
+          )
+          wb = descargar_excel_nube()
+          if wb and "CALCULADORA" in wb.sheetnames:
+            # Actualizamos el rango A31:D189 con la información fresca
+            actualizar_rango_tabla_web(wb, datos_extraidos_web)
 
     except Exception as e:
       print(f"Error en el ciclo de monitoreo web: {e}")
 
-    # Espera exactamente 60 segundos antes de volver a revisar la página
+    # Espera exactamente 60 segundos antes de volver a consultar la página
     await asyncio.sleep(60)
 
 
@@ -173,8 +196,7 @@ async def on_message(message):
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              # Aquí puedes parsear la respuesta de la IA en formato de lista de diccionarios
-              # y llamar a: actualizar_rango_superior_discord(wb, datos_ia)
+              # Aquí puedes parsear los datos de la IA para actualizar A2:B15
               pass
 
           await message.delete()
