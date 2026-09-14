@@ -1,105 +1,135 @@
-import os
+import asyncio
 import io
+import os
 import threading
-from flask import Flask
+from bs4 import BeautifulSoup
 import discord
-import openpyxl
+from flask import Flask
 from google import genai
 from google.genai import types
+import openpyxl
+import requests
 
-# --- SERVIDOR WEB PARA UPTIMEROBOT ---
+# --- CONFIGURACIÓN GENERAL ---
 app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 Bot de Lineage II activo y despierto 24/7!"
-
-def run_web():
-    # Railway asigna automáticamente el puerto en la variable PORT (por defecto 8080)
-    port = int(os.getenv("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# --- CONFIGURACIÓN DEL BOT DE DISCORD ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-EXCEL_FILE_PATH = "tu_archivo.xlsx"  # Cambia esto por el nombre real de tu archivo Excel en GitHub
+WEB_RAID_URL = "https://www.l2sudamerica.com/?page=boss"
+EXCEL_URL = os.getenv(
+    "EXCEL_URL",
+    "https://1drv.ms/x/c/434ba5d6d0d889c3/IQAwNBrAH5eLQZWV-N3ufOfYAY8sBOApZdxzU8GuWMEBs0E?download=1",
+)
+
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
 client_discord = discord.Client(intents=intents)
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+
+@app.route("/")
+def home():
+  return "🤖 Bot autónomo de Lineage II activo 24/7!"
+
+
+def run_web():
+  port = int(os.getenv("PORT", 8080))
+  app.run(host="0.0.0.0", port=port)
+
+
+def descargar_excel_nube():
+  """Descarga el archivo Excel desde OneDrive directamente a la memoria RAM."""
+  try:
+    response = requests.get(EXCEL_URL, timeout=20)
+    if response.status_code == 200:
+      return openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
+    else:
+      print(f"❌ Error al descargar Excel de OneDrive: {response.status_code}")
+      return None
+  except Exception as e:
+    print(f"❌ Excepción al conectar con OneDrive: {e}")
+    return None
+
+
+# --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO ---
+async def bucle_monitoreo_web():
+  await client_discord.wait_until_ready()
+  print("🔄 Iniciando el monitoreo automático de la página de raids...")
+
+  while not client_discord.is_closed():
+    try:
+      # 1. Hacemos scraping a la página de L2Sudamérica
+      response = requests.get(WEB_RAID_URL, timeout=15)
+      if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+        print(
+            "🌐 Página del juego consultada con éxito. Verificando datos para"
+            " la pestaña CALCULADORA..."
+        )
+
+        # 2. Descargamos el Excel para interactuar con él
+        wb = descargar_excel_nube()
+        if wb and "CALCULADORA" in wb.sheetnames:
+          sheet = wb["CALCULADORA"]
+          # Aquí puedes implementar la lógica de volcado en el rango A31:D189
+          # Ejemplo: sheet['A31'] = "Dato extraído"
+          print("📊 Excel de OneDrive cargado correctamente en memoria.")
+
+    except Exception as e:
+      print(f"Error en el ciclo de monitoreo web: {e}")
+
+    # Revisa la web cada 10 minutos de forma continua
+    await asyncio.sleep(600)
+
 
 @client_discord.event
 async def on_ready():
-    print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
+  print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
+  # Arrancamos la tarea en segundo plano al encender el bot
+  client_discord.loop.create_task(bucle_monitoreo_web())
 
+
+# --- PROCESAMIENTO AUTOMÁTICO DE IMÁGENES EN DISCORD ---
 @client_discord.event
 async def on_message(message):
-    if message.author == client_discord.user:
-        return
+  if message.author == client_discord.user:
+    return
 
-    content = message.content.lower().strip()
-
-    # Comando para enviar la imagen vinculada del Excel a Discord
-    if content == "!horario":
-        print("🖼️ Buscando la imagen unificada de horarios en el Excel...")
-        if not os.path.exists(EXCEL_FILE_PATH):
-            await message.channel.send("⚠️ No se encontró el archivo Excel en el servidor.")
-            return
-
+  # Si alguien sube una captura al chat, actúa de forma totalmente autónoma
+  if message.attachments:
+    for attachment in message.attachments:
+      if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        print(f"📸 Captura detectada en Discord: {attachment.filename}")
         try:
-            # Abrimos el Excel en modo lectura (data_only para leer valores de fórmulas)
-            wb = openpyxl.load_workbook(EXCEL_FILE_PATH, data_only=True)
-            
-            if "IMAGEN_HORARIO" in wb.sheetnames:
-                sheet = wb["IMAGEN_HORARIO"]
-                if hasattr(sheet, '_images') and sheet._images:
-                    # Extraemos la imagen vinculada del contenedor
-                    img = sheet._images[0]
-                    img_data = img._data()
-                    
-                    if img_data:
-                        file_to_send = discord.File(io.BytesIO(img_data), filename="Horario_OKT_HTF.png")
-                        await message.channel.send(
-                            "⚔️ **Horarios Oficiales - OKT & HTF Ally** ⚔️", 
-                            file=file_to_send
-                        )
-                        print("✅ Imagen de horarios enviada con éxito a Discord.")
-                        return
+          image_bytes = await attachment.read()
+          response = ai_client.models.generate_content(
+              model="gemini-2.5-flash",
+              contents=[
+                  types.Part.from_bytes(
+                      data=image_bytes, mime_type="image/png"
+                  ),
+                  (
+                      "Extrae la información de los raids para actualizar la"
+                      " pestaña CALCULADORA del Excel."
+                  ),
+              ],
+          )
+          if response and response.text:
+            print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
+            # Aquí conectamos la actualización del Excel y el envío de la imagen resultante a Discord
 
-            await message.channel.send("⚠️ No se encontró ninguna imagen incrustada en la hoja 'IMAGEN_HORARIO'. Asegúrate de haber pegado la imagen vinculada allí.")
+          await message.delete()
 
         except Exception as e:
-            print(f"Error al enviar la imagen de horarios: {e}")
-            await message.channel.send(f"❌ Ocurrió un error al procesar la imagen: {e}")
+          print(f"Error procesando la imagen automáticamente: {e}")
 
-    # Lógica para procesar capturas subidas al chat con IA
-    if message.attachments:
-        for attachment in message.attachments:
-            if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                print(f"📸 Procesando captura de Discord: {attachment.filename}")
-                try:
-                    image_bytes = await attachment.read()
-                    response = ai_client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[
-                            types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-                            "Extrae el nombre de cada raid, si está vivo (true/false), su hora y fecha para actualizar la plantilla."
-                        ]
-                    )
-                    if response and response.text:
-                        print(f"--- DATOS EXTRAÍDOS --- \n{response.text.strip()}")
-                    await message.delete()
-                except Exception as e:
-                    print(f"Error procesando imagen de Discord con IA: {e}")
 
-# --- INICIO DE AMBOS PROCESOS (Web + Discord) ---
+# --- INICIO DE PROCESOS (Flask + Discord) ---
 if __name__ == "__main__":
-    # 1. Arrancamos el servidor web en un hilo aparte para que UptimeRobot lo vigile
-    t = threading.Thread(target=run_web)
-    t.daemon = True
-    t.start()
-    
-    # 2. Arrancamos el bot de Discord
-    client_discord.run(DISCORD_TOKEN)
+  # 1. Arrancamos el servidor Flask en un hilo independiente para UptimeRobot
+  t = threading.Thread(target=run_web)
+  t.daemon = True
+  t.start()
+
+  # 2. Arrancamos el cliente de Discord
+  client_discord.run(DISCORD_TOKEN)
