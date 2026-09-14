@@ -42,7 +42,7 @@ def descargar_excel_nube():
   try:
     response = requests.get(EXCEL_URL, timeout=20)
     if response.status_code == 200:
-      return openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
+      return openpyxl.load_workbook(io.BytesIO(response.content))
     else:
       print(f"❌ Error al descargar Excel de OneDrive: {response.status_code}")
       return None
@@ -51,41 +51,97 @@ def descargar_excel_nube():
     return None
 
 
-# --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO ---
+def actualizar_rango_tabla_web(wb, datos_web):
+  """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA
+
+  con los datos obtenidos de la página web del juego.
+  """
+  try:
+    sheet = wb["CALCULADORA"]
+
+    # Limpiamos primero el rango A31:D189 por si hay datos viejos
+    for r in range(31, 190):
+      for c in range(1, 5):
+        sheet.cell(row=r, column=c).value = None
+
+    # Insertamos los nuevos datos de la web
+    for i, fila_datos in enumerate(datos_web):
+      fila_idx = 31 + i
+      if fila_idx > 189:
+        break
+      for col_offset, valor in enumerate(fila_datos):
+        sheet.cell(row=fila_idx, column=1 + col_offset).value = valor
+
+    print("✅ Rango inferior (A31:D189) actualizado con los datos de la web.")
+    return True
+  except Exception as e:
+    print(f"❌ Error al actualizar el rango web A31:D189: {e}")
+    return False
+
+
+def actualizar_rango_superior_discord(wb, datos_procesados_ia):
+  """Rellena la tabla superior en el rango A2:B15 en CALCULADORA
+
+  con los datos extraídos de las imágenes que llegan al canal de Discord.
+  """
+  try:
+    sheet = wb["CALCULADORA"]
+
+    for i, item in enumerate(datos_procesados_ia):
+      fila_idx = 2 + i
+      if fila_idx > 15:
+        break  # Límite superior B15
+
+      boss_nombre = item.get("boss") or item.get("nombre")
+      fecha_hora = item.get("fecha_hora") or item.get("hora")
+
+      if boss_nombre:
+        sheet.cell(row=fila_idx, column=1).value = boss_nombre
+      if fecha_hora:
+        sheet.cell(row=fila_idx, column=2).value = fecha_hora
+
+    print("✅ Rango superior (A2:B15) actualizado con la información de Discord.")
+    return True
+  except Exception as e:
+    print(f"❌ Error al actualizar el rango superior A2:B15: {e}")
+    return False
+
+
+# --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO (CADA 60 SEGUNDOS) ---
 async def bucle_monitoreo_web():
   await client_discord.wait_until_ready()
-  print("🔄 Iniciando el monitoreo automático de la página de raids...")
+  print(
+      "🔄 Iniciando el monitoreo automático de la página de raids (cada 60"
+      " segundos)..."
+  )
 
   while not client_discord.is_closed():
     try:
-      # 1. Hacemos scraping a la página de L2Sudamérica
       response = requests.get(WEB_RAID_URL, timeout=15)
       if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
-        print(
-            "🌐 Página del juego consultada con éxito. Verificando datos para"
-            " la pestaña CALCULADORA..."
-        )
+        print("🌐 Página del juego consultada. Verificando cambios...")
 
-        # 2. Descargamos el Excel para interactuar con él
+        # Aquí procesarías el HTML de la sopa para extraer los datos en bruto
+        # Ejemplo simulado de datos estructurados para la tabla A31:D189:
+        # datos_extraidos_web = [ [colA, colB, colC, colD], ... ]
+
         wb = descargar_excel_nube()
         if wb and "CALCULADORA" in wb.sheetnames:
-          sheet = wb["CALCULADORA"]
-          # Aquí puedes implementar la lógica de volcado en el rango A31:D189
-          # Ejemplo: sheet['A31'] = "Dato extraído"
-          print("📊 Excel de OneDrive cargado correctamente en memoria.")
+          # Si deseas aplicar la actualización automática en el Excel:
+          # actualizar_rango_tabla_web(wb, datos_extraidos_web)
+          pass
 
     except Exception as e:
       print(f"Error en el ciclo de monitoreo web: {e}")
 
-    # Revisa la web cada 10 minutos de forma continua
-    await asyncio.sleep(600)
+    # Espera exactamente 60 segundos antes de volver a revisar la página
+    await asyncio.sleep(60)
 
 
 @client_discord.event
 async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
-  # Arrancamos la tarea en segundo plano al encender el bot
   client_discord.loop.create_task(bucle_monitoreo_web())
 
 
@@ -95,7 +151,6 @@ async def on_message(message):
   if message.author == client_discord.user:
     return
 
-  # Si alguien sube una captura al chat, actúa de forma totalmente autónoma
   if message.attachments:
     for attachment in message.attachments:
       if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
@@ -110,13 +165,17 @@ async def on_message(message):
                   ),
                   (
                       "Extrae la información de los raids para actualizar la"
-                      " pestaña CALCULADORA del Excel."
+                      " pestaña CALCULADORA (A2:B15) del Excel."
                   ),
               ],
           )
           if response and response.text:
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
-            # Aquí conectamos la actualización del Excel y el envío de la imagen resultante a Discord
+            wb = descargar_excel_nube()
+            if wb and "CALCULADORA" in wb.sheetnames:
+              # Aquí puedes parsear la respuesta de la IA en formato de lista de diccionarios
+              # y llamar a: actualizar_rango_superior_discord(wb, datos_ia)
+              pass
 
           await message.delete()
 
@@ -126,10 +185,8 @@ async def on_message(message):
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
 if __name__ == "__main__":
-  # 1. Arrancamos el servidor Flask en un hilo independiente para UptimeRobot
   t = threading.Thread(target=run_web)
   t.daemon = True
   t.start()
 
-  # 2. Arrancamos el cliente de Discord
   client_discord.run(DISCORD_TOKEN)
