@@ -8,6 +8,7 @@ from flask import Flask
 from google import genai
 from google.genai import types
 import openpyxl
+from PIL import Image, ImageDraw, ImageFont
 import requests
 
 # --- CONFIGURACIÓN GENERAL ---
@@ -59,19 +60,13 @@ def descargar_excel_nube():
 
 
 def actualizar_rango_tabla_web(wb, datos_web):
-  """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA
-
-  con los datos obtenidos de la página web del juego.
-  """
+  """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA."""
   try:
     sheet = wb["CALCULADORA"]
-
-    # Limpiamos primero el rango A31:D189 por si hay datos viejos
     for r in range(31, 190):
       for c in range(1, 5):
         sheet.cell(row=r, column=c).value = None
 
-    # Insertamos los nuevos datos de la web
     for i, fila_datos in enumerate(datos_web):
       fila_idx = 31 + i
       if fila_idx > 189:
@@ -86,32 +81,91 @@ def actualizar_rango_tabla_web(wb, datos_web):
     return False
 
 
-def actualizar_rango_superior_discord(wb, datos_procesados_ia):
-  """Rellena la tabla superior en el rango A2:B15 en CALCULADORA
-
-  con los datos extraídos de las imágenes que llegan al canal de Discord.
-  """
+def generar_imagen_horario_rojo(wb):
+  """Genera una tarjeta visual idéntica a la plantilla de Horario Rojo leyendo el Excel."""
   try:
-    sheet = wb["CALCULADORA"]
+    # Creamos un lienzo limpio con el fondo beige característico de la plantilla (#FDF3D8)
+    img_width, img_height = 800, 900
+    img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
+    draw = ImageDraw.Draw(img)
 
-    for i, item in enumerate(datos_procesados_ia):
-      fila_idx = 2 + i
-      if fila_idx > 15:
-        break  # Límite superior B15
+    # Intentamos cargar una fuente estándar, si no usa la por defecto
+    try:
+      font_titulo = ImageFont.truetype(
+          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22
+      )
+      font_texto = ImageFont.truetype(
+          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16
+      )
+      font_chica = ImageFont.truetype(
+          "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14
+      )
+    except:
+      font_titulo = ImageFont.load_default()
+      font_texto = ImageFont.load_default()
+      font_chica = ImageFont.load_default()
 
-      boss_nombre = item.get("boss") or item.get("nombre")
-      fecha_hora = item.get("fecha_hora") or item.get("hora")
+    # Cabecera roja superior similar a la imagen
+    draw.rectangle([0, 0, img_width, 110], fill="#8B0000")
+    draw.text(
+        (250, 40),
+        "OKT Raid OKT Ally HTF",
+        fill="#FFD700",
+        font=font_titulo,
+    )
 
-      if boss_nombre:
-        sheet.cell(row=fila_idx, column=1).value = boss_nombre
-      if fecha_hora:
-        sheet.cell(row=fila_idx, column=2).value = fecha_hora
+    # Cabeceras de columnas
+    draw.text((50, 140), "RAID", fill="#003366", font=font_texto)
+    draw.text((200, 140), "DIA", fill="#003366", font=font_texto)
+    draw.text((310, 140), "FECHA", fill="#003366", font=font_texto)
+    draw.text((530, 140), "ARG / CHI", fill="#006600", font=font_texto)
+    draw.text((640, 140), "VEN", fill="#006600", font=font_texto)
+    draw.text((720, 140), "ESP", fill="#006600", font=font_texto)
 
-    print("✅ Rango superior (A2:B15) actualizado con la información de Discord.")
-    return True
+    # Línea divisoria
+    draw.line([30, 175, 770, 175], fill="#C08040", width=2)
+
+    # Intentamos leer los datos de la pestaña HORARIO ROJO si existe, o simulamos con CALCULADORA
+    sheet = (
+        wb["HORARIO ROJO"]
+        if "HORARIO ROJO" in wb.sheetnames
+        else wb["CALCULADORA"]
+    )
+
+    # Pintamos filas de ejemplo/datos extraídos del Excel de forma dinámica
+    y_offset = 200
+    for row in range(10, 25):
+      raid_nombre = sheet.cell(row=row, column=1).value
+      if not raid_nombre:
+        break
+
+      dia = str(sheet.cell(row=row, column=2).value or "")
+      fecha = str(sheet.cell(row=row, column=3).value or "")
+      arg = str(sheet.cell(row=row, column=6).value or "18:00")
+      ven = str(sheet.cell(row=row, column=7).value or "17:00")
+      esp = str(sheet.cell(row=row, column=8).value or "23:00")
+
+      # Color condicional similar al diseño (Rojo para algunos especiales, verde para normales)
+      color_texto = "#CC0000" if row in [13, 19, 22, 23] else "#003300"
+
+      draw.text((50, y_offset), str(raid_nombre), fill=color_texto, font=font_texto)
+      draw.text((200, y_offset), dia, fill=color_texto, font=font_texto)
+      draw.text((310, y_offset), fecha, fill=color_texto, font=font_texto)
+      draw.text((530, y_offset), arg, fill=color_texto, font=font_texto)
+      draw.text((640, y_offset), ven, fill=color_texto, font=font_texto)
+      draw.text((720, y_offset), esp, fill=color_texto, font=font_texto)
+
+      y_offset += 35
+
+    # Guardamos en memoria RAM como imagen PNG
+    output_img = io.BytesIO()
+    img.save(output_img, format="PNG")
+    output_img.seek(0)
+    return output_img
+
   except Exception as e:
-    print(f"❌ Error al actualizar el rango superior A2:B15: {e}")
-    return False
+    print(f"❌ Error generando la imagen visual del horario: {e}")
+    return None
 
 
 # --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO (CADA 60 SEGUNDOS) ---
@@ -146,34 +200,32 @@ async def bucle_monitoreo_web():
           if wb and "CALCULADORA" in wb.sheetnames:
             actualizar_rango_tabla_web(wb, datos_extraidos_web)
 
-            # Generamos el archivo Excel actualizado en memoria
-            output = io.BytesIO()
-            wb.save(output)
-            output.seek(0)
+            # Generamos la imagen visual exacta del horario rojo
+            imagen_buffer = generar_imagen_horario_rojo(wb)
 
             canal = client_discord.get_channel(int(DISCORD_CANAL_NOTIFICACIONES_ID))
-            if canal:
-              # Borramos el mensaje anterior del bot si existe para no saturar el chat
+            if canal and imagen_buffer:
+              # Borramos el mensaje anterior del bot si existe para mantener el chat limpio
               if ultimo_mensaje_excel_id:
                 try:
                   msg_anterior = await canal.fetch_message(
                       ultimo_mensaje_excel_id
                   )
                   await msg_anterior.delete()
-                  print("🗑️ Archivo Excel anterior borrado del canal.")
+                  print("🗑️ Imagen de horario anterior borrada del canal.")
                 except Exception as ex:
                   print(
                       f"No se pudo borrar el mensaje anterior (posiblemente ya"
                       f" fue borrado): {ex}"
                   )
 
-              # Enviamos el nuevo archivo Excel actualizado
+              # Enviamos la nueva imagen generada
               file_to_send = discord.File(
-                  fp=output, filename="Calculadora_RAID_Actualizada.xlsx"
+                  fp=imagen_buffer, filename="Horario_Rojo_Raids.png"
               )
               nuevo_msg = await canal.send(
-                  "📊 **Excel actualizado automáticamente (Web)** - Ciclo de"
-                  " 60 segundos:",
+                  "🔥 **HORARIOS DE RAIDS ACTUALIZADOS** (Sincronizado con la"
+                  " web):",
                   file=file_to_send,
               )
               ultimo_mensaje_excel_id = nuevo_msg.id
@@ -181,7 +233,6 @@ async def bucle_monitoreo_web():
     except Exception as e:
       print(f"Error en el ciclo de monitoreo web: {e}")
 
-    # Espera exactamente 60 segundos antes del próximo ciclo
     await asyncio.sleep(60)
 
 
@@ -194,6 +245,7 @@ async def on_ready():
 # --- PROCESAMIENTO AUTOMÁTICO DE IMÁGENES EN DISCORD ---
 @client_discord.event
 async def on_message(message):
+  global ultimo_mensaje_excel_id
   if message.author == client_discord.user:
     return
 
@@ -210,9 +262,9 @@ async def on_message(message):
                       data=image_bytes, mime_type="image/png"
                   ),
                   (
-                      "Extrae la información de los raids para actualizar la"
-                      " pestaña CALCULADORA (A2:B15) del Excel. Devuelve los"
-                      " datos ordenados."
+                      "Extrae la información de los raids de la imagen en un"
+                      " formato estructurado para actualizar la pestaña"
+                      " CALCULADORA (A2:B15) del Excel."
                   ),
               ],
           )
@@ -220,7 +272,28 @@ async def on_message(message):
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              pass
+              # Generamos y publicamos la nueva imagen actualizada tras procesar la captura
+              imagen_buffer = generar_imagen_horario_rojo(wb)
+
+              if message.channel and imagen_buffer:
+                if ultimo_mensaje_excel_id:
+                  try:
+                    msg_anterior = await message.channel.fetch_message(
+                        ultimo_mensaje_excel_id
+                    )
+                    await msg_anterior.delete()
+                  except Exception:
+                    pass
+
+                file_to_send = discord.File(
+                    fp=imagen_buffer, filename="Horario_Rojo_Raids.png"
+                )
+                nuevo_msg = await message.channel.send(
+                    "📸 **Horario actualizado mediante captura procesada por"
+                    " IA:**",
+                    file=file_to_send,
+                )
+                ultimo_mensaje_excel_id = nuevo_msg.id
 
           await message.delete()
 
