@@ -16,7 +16,7 @@ app = Flask(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# IDs de los dos canales de prueba configurados
+# IDs de tus dos canales de prueba configurados
 DISCORD_CANAL_HORARIOS_ID = 1548528724268552263
 DISCORD_CANAL_RONDA_ID = 1548528618949582929
 
@@ -32,10 +32,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 client_discord = discord.Client(intents=intents)
 
-# Variables para rastrear el último mensaje enviado en cada canal y poder borrarlos
+# Variables para rastrear los mensajes anteriores en cada canal
 ultimo_mensaje_horarios_id = None
 ultimo_mensaje_ronda_id = None
-ultimo_hash_datos_web = None
 
 
 @app.route("/")
@@ -174,7 +173,6 @@ def generar_imagen_ronda_rojo(wb):
       font_titulo = ImageFont.load_default()
       font_texto = ImageFont.load_default()
 
-    # Cabecera roja superior
     draw.rectangle([0, 0, img_width, 110], fill="#8B0000")
     draw.text(
         (250, 40),
@@ -183,7 +181,6 @@ def generar_imagen_ronda_rojo(wb):
         font=font_titulo,
     )
 
-    # Cabeceras de columnas (Bloque Izquierdo y Bloque Derecho)
     draw.text((40, 135), "Raid", fill="#003366", font=font_texto)
     draw.text((260, 135), "LVL", fill="#003366", font=font_texto)
     draw.text((310, 135), "Hora", fill="#003366", font=font_texto)
@@ -198,7 +195,6 @@ def generar_imagen_ronda_rojo(wb):
         wb["RONDA ROJO"] if "RONDA ROJO" in wb.sheetnames else wb["CALCULADORA"]
     )
 
-    # Bloque Izquierdo (Filas 9 a 45 aprox)
     y_left = 180
     for row in range(9, 30):
       raid = sheet.cell(row=row, column=2).value
@@ -212,7 +208,6 @@ def generar_imagen_ronda_rojo(wb):
       draw.text((310, y_left), hora, fill="#006600", font=font_texto)
       y_left += 28
 
-    # Bloque Derecho
     y_right = 180
     for row in range(9, 35):
       raid = sheet.cell(row=row, column=7).value
@@ -235,45 +230,43 @@ def generar_imagen_ronda_rojo(wb):
     return None
 
 
-# --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO (CADA 60 SEGUNDOS) ---
-async def bucle_monitoreo_web():
-  global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id, ultimo_hash_datos_web
-  await client_discord.wait_until_ready()
-  print("🔄 Iniciando el monitoreo automático de la página de raids (cada 60 segundos)...")
+@client_discord.event
+async def on_ready():
+  print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
-  while not client_discord.is_closed():
-    try:
-      response = requests.get(WEB_RAID_URL, timeout=15)
-      if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        filas_tabla = soup.find_all("tr")
-        datos_extraidos_web = []
 
-        for fila in filas_tabla:
-          columnas = fila.find_all(["td", "th"])
-          if len(columnas) >= 4:
-            val_nombre = columnas[0].get_text(strip=True)
-            val_level = columnas[1].get_text(strip=True)
-            val_status = columnas[2].get_text(strip=True)
-            val_respawn = columnas[3].get_text(strip=True)
+# --- PROCESAMIENTO AUTOMÁTICO CUANDO SUBES LA IMAGEN A DISCORD ---
+@client_discord.event
+async def on_message(message):
+  global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
+  if message.author == client_discord.user:
+    return
 
-            if val_nombre and val_nombre.upper() != "NOMBRE":
-              # Filtramos o guardamos nivel 60+ para ronda rojo si es necesario
-              datos_extraidos_web.append(
-                  [val_nombre, val_level, val_status, val_respawn]
-              )
+  # Si envías una imagen al canal, se activa la magia
+  if message.attachments:
+    for attachment in message.attachments:
+      if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
+        try:
+          image_bytes = await attachment.read()
+          response = ai_client.models.generate_content(
+              model="gemini-2.5-flash",
+              contents=[
+                  types.Part.from_bytes(
+                      data=image_bytes, mime_type="image/png"
+                  ),
+                  (
+                      "Extrae la información de los raids de la imagen en un"
+                      " formato estructurado para actualizar la pestaña"
+                      " CALCULADORA (A2:B15) del Excel."
+                  ),
+              ],
+          )
 
-        if datos_extraidos_web:
-          # Verificamos si los datos de la web cambiaron realmente
-          hash_actual = str(datos_extraidos_web)
-          if hash_actual != ultimo_hash_datos_web:
-            print("🔄 ¡Cambios detectados en la web de raids! Actualizando...")
-            ultimo_hash_datos_web = hash_actual
-
+          if response and response.text:
+            print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              actualizar_rango_tabla_web(wb, datos_extraidos_web)
-
               # 1. Publicar en Canal Horarios
               img_horarios = generar_imagen_horario_rojo(wb)
               canal_horarios = client_discord.get_channel(
@@ -293,11 +286,12 @@ async def bucle_monitoreo_web():
                     fp=img_horarios, filename="Horario_Rojo.png"
                 )
                 msg_h = await canal_horarios.send(
-                    "🔥 **HORARIOS DE RAIDS ACTUALIZADOS:**", file=f_horarios
+                    "🔥 **HORARIOS DE RAIDS ACTUALIZADOS (vía imagen):**",
+                    file=f_horarios,
                 )
                 ultimo_mensaje_horarios_id = msg_h.id
 
-              # 2. Publicar en Canal Ronda Rojo (nivel 60+)
+              # 2. Publicar en Canal Ronda Rojo
               img_ronda = generar_imagen_ronda_rojo(wb)
               canal_ronda = client_discord.get_channel(
                   int(DISCORD_CANAL_RONDA_ID)
@@ -316,78 +310,17 @@ async def bucle_monitoreo_web():
                     fp=img_ronda, filename="Ronda_Rojo.png"
                 )
                 msg_r = await canal_ronda.send(
-                    "⚔️ **RONDA ROJO (Raids Nivel 60+) ACTUALIZADA:**",
+                    "⚔️ **RONDA ROJO (Nivel 60+) ACTUALIZADA (vía"
+                    " imagen):**",
                     file=f_ronda,
                 )
                 ultimo_mensaje_ronda_id = msg_r.id
 
-    except Exception as e:
-      print(f"Error en el ciclo de monitoreo web: {e}")
-
-    await asyncio.sleep(60)
-
-
-@client_discord.event
-async def on_ready():
-  print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
-  client_discord.loop.create_task(bucle_monitoreo_web())
-
-
-# --- PROCESAMIENTO AUTOMÁTICO DE IMÁGENES EN DISCORD ---
-@client_discord.event
-async def on_message(message):
-  global ultimo_mensaje_horarios_id
-  if message.author == client_discord.user:
-    return
-
-  if message.attachments:
-    for attachment in message.attachments:
-      if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        print(f"📸 Captura detectada en Discord: {attachment.filename}")
-        try:
-          image_bytes = await attachment.read()
-          response = ai_client.models.generate_content(
-              model="gemini-2.5-flash",
-              contents=[
-                  types.Part.from_bytes(
-                      data=image_bytes, mime_type="image/png"
-                  ),
-                  (
-                      "Extrae la información de los raids de la imagen en un"
-                      " formato estructurado para actualizar la pestaña"
-                      " CALCULADORA (A2:B15) del Excel."
-                  ),
-              ],
-          )
-          if response and response.text:
-            wb = descargar_excel_nube()
-            if wb and "CALCULADORA" in wb.sheetnames:
-              img_horarios = generar_imagen_horario_rojo(wb)
-
-              if message.channel and img_horarios:
-                if ultimo_mensaje_horarios_id:
-                  try:
-                    msg_ant = await message.channel.fetch_message(
-                        ultimo_mensaje_horarios_id
-                    )
-                    await msg_ant.delete()
-                  except:
-                    pass
-
-                file_to_send = discord.File(
-                    fp=img_horarios, filename="Horario_Rojo.png"
-                )
-                nuevo_msg = await message.channel.send(
-                    "📸 **Horario actualizado mediante captura procesada por"
-                    " IA:**",
-                    file=file_to_send,
-                )
-                ultimo_mensaje_horarios_id = nuevo_msg.id
-
+          # Borramos tu captura original del chat para mantenerlo limpio
           await message.delete()
 
         except Exception as e:
-          print(f"Error procesando la imagen automáticamente: {e}")
+          print(f"Error procesando la imagen: {e}")
 
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
