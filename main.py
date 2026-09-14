@@ -226,9 +226,9 @@ async def on_message(message):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
         try:
           image_bytes = await attachment.read()
-          # Actualizado al modelo correcto indicado por la API
+          # Modelo actualizado correctamente
           response = ai_client.models.generate_content(
-              model="gemini-3.6-flash",
+              model="gemini-3.8-flash",
               contents=[
                   types.Part.from_bytes(
                       data=image_bytes, mime_type="image/png"
