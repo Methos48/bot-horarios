@@ -14,6 +14,10 @@ import requests
 app = Flask(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Canal fijo configurado por ti
+DISCORD_CANAL_NOTIFICACIONES_ID = 1549187543277379594
+
 WEB_RAID_URL = "https://www.l2sudamerica.com/?page=boss"
 EXCEL_URL = os.getenv(
     "EXCEL_URL",
@@ -25,6 +29,9 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 intents = discord.Intents.default()
 intents.message_content = True
 client_discord = discord.Client(intents=intents)
+
+# Variable para rastrear el último mensaje enviado y poder borrarlo
+ultimo_mensaje_excel_id = None
 
 
 @app.route("/")
@@ -54,8 +61,7 @@ def descargar_excel_nube():
 def actualizar_rango_tabla_web(wb, datos_web):
   """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA
 
-  con los datos obtenidos de la página web del juego (Nombre, Level, Status,
-  Respawn).
+  con los datos obtenidos de la página web del juego.
   """
   try:
     sheet = wb["CALCULADORA"]
@@ -73,10 +79,7 @@ def actualizar_rango_tabla_web(wb, datos_web):
       for col_offset, valor in enumerate(fila_datos):
         sheet.cell(row=fila_idx, column=1 + col_offset).value = valor
 
-    print(
-        "✅ Rango inferior (A31:D189) actualizado con éxito desde la web del"
-        " juego."
-    )
+    print("✅ Rango inferior (A31:D189) actualizado con los datos de la web.")
     return True
   except Exception as e:
     print(f"❌ Error al actualizar el rango web A31:D189: {e}")
@@ -113,52 +116,72 @@ def actualizar_rango_superior_discord(wb, datos_procesados_ia):
 
 # --- TAREA AUTÓNOMA: MONITOREO DE LA WEB DEL JUEGO (CADA 60 SEGUNDOS) ---
 async def bucle_monitoreo_web():
+  global ultimo_mensaje_excel_id
   await client_discord.wait_until_ready()
-  print(
-      "🔄 Iniciando el monitoreo automático de la página de raids (cada 60"
-      " segundos)..."
-  )
+  print("🔄 Iniciando el monitoreo automático de la página de raids (cada 60 segundos)...")
 
   while not client_discord.is_closed():
     try:
       response = requests.get(WEB_RAID_URL, timeout=15)
       if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
-
-        # Buscamos las filas de la tabla de raids de la página web
-        # (Esto extrae ordenadamente cada fila de la tabla inferior que me mostraste)
         filas_tabla = soup.find_all("tr")
         datos_extraidos_web = []
 
         for fila in filas_tabla:
           columnas = fila.find_all(["td", "th"])
           if len(columnas) >= 4:
-            # Extraemos los 4 valores correspondientes: Nombre, Level, Status, Respawn
             val_nombre = columnas[0].get_text(strip=True)
             val_level = columnas[1].get_text(strip=True)
             val_status = columnas[2].get_text(strip=True)
             val_respawn = columnas[3].get_text(strip=True)
 
-            # Evitamos capturar la cabecera de la tabla
             if val_nombre and val_nombre.upper() != "NOMBRE":
               datos_extraidos_web.append(
                   [val_nombre, val_level, val_status, val_respawn]
               )
 
         if datos_extraidos_web:
-          print(
-              f"🌐 Se extrajeron {len(datos_extraidos_web)} registros de raids"
-              " de la web."
-          )
           wb = descargar_excel_nube()
           if wb and "CALCULADORA" in wb.sheetnames:
-            # Actualizamos el rango A31:D189 con la información fresca
             actualizar_rango_tabla_web(wb, datos_extraidos_web)
+
+            # Generamos el archivo Excel actualizado en memoria
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            canal = client_discord.get_channel(int(DISCORD_CANAL_NOTIFICACIONES_ID))
+            if canal:
+              # Borramos el mensaje anterior del bot si existe para no saturar el chat
+              if ultimo_mensaje_excel_id:
+                try:
+                  msg_anterior = await canal.fetch_message(
+                      ultimo_mensaje_excel_id
+                  )
+                  await msg_anterior.delete()
+                  print("🗑️ Archivo Excel anterior borrado del canal.")
+                except Exception as ex:
+                  print(
+                      f"No se pudo borrar el mensaje anterior (posiblemente ya"
+                      f" fue borrado): {ex}"
+                  )
+
+              # Enviamos el nuevo archivo Excel actualizado
+              file_to_send = discord.File(
+                  fp=output, filename="Calculadora_RAID_Actualizada.xlsx"
+              )
+              nuevo_msg = await canal.send(
+                  "📊 **Excel actualizado automáticamente (Web)** - Ciclo de"
+                  " 60 segundos:",
+                  file=file_to_send,
+              )
+              ultimo_mensaje_excel_id = nuevo_msg.id
 
     except Exception as e:
       print(f"Error en el ciclo de monitoreo web: {e}")
 
-    # Espera exactamente 60 segundos antes de volver a consultar la página
+    # Espera exactamente 60 segundos antes del próximo ciclo
     await asyncio.sleep(60)
 
 
@@ -188,7 +211,8 @@ async def on_message(message):
                   ),
                   (
                       "Extrae la información de los raids para actualizar la"
-                      " pestaña CALCULADORA (A2:B15) del Excel."
+                      " pestaña CALCULADORA (A2:B15) del Excel. Devuelve los"
+                      " datos ordenados."
                   ),
               ],
           )
@@ -196,7 +220,6 @@ async def on_message(message):
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
-              # Aquí puedes parsear los datos de la IA para actualizar A2:B15
               pass
 
           await message.delete()
