@@ -61,28 +61,6 @@ def descargar_excel_nube():
     return None
 
 
-def actualizar_rango_tabla_web(wb, datos_web):
-  """Rellena la tabla inferior en crudo desde A31 hasta D189 en CALCULADORA."""
-  try:
-    sheet = wb["CALCULADORA"]
-    for r in range(31, 190):
-      for c in range(1, 5):
-        sheet.cell(row=r, column=c).value = None
-
-    for i, fila_datos in enumerate(datos_web):
-      fila_idx = 31 + i
-      if fila_idx > 189:
-        break
-      for col_offset, valor in enumerate(fila_datos):
-        sheet.cell(row=fila_idx, column=1 + col_offset).value = valor
-
-    print("✅ Rango inferior (A31:D189) actualizado con los datos de la web.")
-    return True
-  except Exception as e:
-    print(f"❌ Error al actualizar el rango web A31:D189: {e}")
-    return False
-
-
 def generar_imagen_horario_rojo(wb):
   """Genera la tarjeta visual de Horario Rojo."""
   try:
@@ -242,15 +220,15 @@ async def on_message(message):
   if message.author == client_discord.user:
     return
 
-  # Si envías una imagen al canal, se activa la magia
   if message.attachments:
     for attachment in message.attachments:
       if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
         try:
           image_bytes = await attachment.read()
+          # Actualizado al modelo correcto indicado por la API
           response = ai_client.models.generate_content(
-              model="gemini-2.5-flash",
+              model="gemini-3.6-flash",
               contents=[
                   types.Part.from_bytes(
                       data=image_bytes, mime_type="image/png"
