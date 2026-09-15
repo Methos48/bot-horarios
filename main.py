@@ -214,7 +214,33 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- PROCESAMIENTO AUTOMÁTICO CON REINTENTO INTELIGENTE ANTE 503 ---
+# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS ---
+def llamar_ia_con_reintentos(image_bytes):
+    intentos = 3
+    for i in range(intentos):
+        try:
+            return ai_client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=[
+                    types.Part.from_bytes(
+                        data=image_bytes, mime_type="image/png"
+                    ),
+                    (
+                        "Extrae la información de los raids de la imagen en un"
+                        " formato estructurado para actualizar la pestaña"
+                        " CALCULADORA (A2:B15) del Excel."
+                    ),
+                ],
+            )
+        except Exception as ex:
+            print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
+            if i < intentos - 1:
+                time.sleep(4)  # Espera 4 segundos antes de reintentar
+            else:
+                raise ex
+
+
+# --- PROCESAMIENTO AUTOMÁTICO SEGURO ---
 @client_discord.event
 async def on_message(message):
   global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
@@ -228,31 +254,8 @@ async def on_message(message):
         try:
           image_bytes = await attachment.read()
           
-          def llamar_ia_con_reintentos():
-              intentos = 3
-              for i in range(intentos):
-                  try:
-                      return ai_client.models.generate_content(
-                          model="gemini-3.8-flash",
-                          contents=[
-                              types.Part.from_bytes(
-                                  data=image_bytes, mime_type="image/png"
-                              ),
-                              (
-                                  "Extrae la información de los raids de la imagen en un"
-                                  " formato estructurado para actualizar la pestaña"
-                                  " CALCULADORA (A2:B15) del Excel."
-                              ),
-                          ],
-                      )
-                  except Exception as ex:
-                      print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
-                      if i < intentos - 1:
-                          time.sleep(4) # Espera 4 segundos antes de reintentar
-                      else:
-                          raise ex
-
-          response = await asyncio.to_thread(llamar_ia_con_reintentos)
+          # Se ejecuta completamente en segundo plano sin congelar el hilo de Discord
+          response = await asyncio.to_thread(llamar_ia_con_reintentos, image_bytes)
 
           if response and response.text:
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
