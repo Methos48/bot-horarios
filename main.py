@@ -276,6 +276,8 @@ async def on_message(message):
     return
 
   if message.attachments:
+    hubo_al_menos_una_procesada = False
+
     for attachment in message.attachments:
       if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
@@ -370,10 +372,17 @@ async def on_message(message):
                 )
                 ultimo_mensaje_ronda_id = msg_r.id
 
-            await message.delete()
+            hubo_al_menos_una_procesada = True
 
           except Exception as e:
             print(f"❌ Error al generar o publicar las tarjetas en Discord: {e}")
+
+    # Borramos el mensaje original SOLAMENTE al terminar de procesar todas las imágenes
+    if hubo_al_menos_una_procesada:
+      try:
+        await message.delete()
+      except:
+        pass
 
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
