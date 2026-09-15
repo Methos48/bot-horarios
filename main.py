@@ -214,14 +214,14 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON MODELO ESTÁNDAR Y BLINDADO ---
+# --- FUNCIÓN AUXILIAR CON EL MODELO EXACTO REQUERIDO ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
             img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-2.5-flash",  # Versión estándar y estable que no cambia de nombre abruptamente
+                model="gemini-3.6-flash",  # Nombre exacto requerido por la API actual
                 contents=[
                     img_copia,
                     (
