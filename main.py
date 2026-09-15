@@ -214,15 +214,14 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS Y COPIA AISLADA ---
+# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON EL MODELO CORRECTO ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
-            # Creamos una copia fresca y aislada en cada intento para evitar conflictos de assets
             img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.6-flash",  # Usando el modelo sugerido por la API
                 contents=[
                     img_copia,
                     (
@@ -235,7 +234,7 @@ def llamar_ia_con_reintentos(img_pil):
         except Exception as ex:
             print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
             if i < intentos - 1:
-                time.sleep(4)  # Espera 4 segundos antes de reintentar
+                time.sleep(4)
             else:
                 raise ex
 
@@ -255,7 +254,6 @@ async def on_message(message):
           image_bytes = await attachment.read()
           img_pil = Image.open(io.BytesIO(image_bytes))
           
-          # Se ejecuta completamente en segundo plano sin bloquear el hilo de Discord
           response = await asyncio.to_thread(llamar_ia_con_reintentos, img_pil)
 
           if response and response.text:
@@ -311,7 +309,6 @@ async def on_message(message):
                 )
                 ultimo_mensaje_ronda_id = msg_r.id
 
-          # Borramos tu captura original del chat para mantenerlo limpio
           await message.delete()
 
         except Exception as e:
