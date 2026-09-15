@@ -214,14 +214,14 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON EL MODELO ESTÁNDAR VIGENTE ---
+# --- FUNCIÓN AUXILIAR CON EL MODELO COMPATIBLE Y ESTABLE ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
             img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-2.5-flash",  # Modelo estándar compatible con generate_content en v1beta
+                model="gemini-1.5-flash",  # Modelo estable plenamente soportado
                 contents=[
                     img_copia,
                     (
