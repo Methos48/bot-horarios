@@ -220,12 +220,12 @@ def extraer_datos_imagen(img_pil):
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
   headers = {"Content-Type": "application/json"}
 
-  # Prompt estricto para que la IA devuelva texto plano sin formato markdown ni explicaciones
+  # Prompt ultra-estricto para prohibir texto explicativo o tablas Markdown
   prompt_instrucciones = (
-      "Analiza esta captura de pantalla de los raids. Extrae estrictamente cada"
-      " raid seguido de dos puntos y su horario o estado. NO uses formato de"
-      " tabla markdown ni asteriscos. Ejemplo de formato requerido por línea:"
-      " Valakas: Jueves 17/09 entre 22:30 y 23 hs (ARG)"
+      "Extrae de esta imagen los nombres de los raids y sus horarios o"
+      " estados. Devuelve UNICAMENTE líneas con el formato exacto"
+      " 'NombreRaid: Horario'. No agregues saludos, explicaciones, ni formato"
+      " de tabla markdown (nada de guiones, pipes o asteriscos)."
   )
 
   payload = {
@@ -303,7 +303,6 @@ async def on_message(message):
           "Zariche",
       ]
 
-      # 1. PRE-DESCARGAR TODOS LOS BYTES EN MEMORIA PRIMERO (Evita el error 404 de asset not found en imágenes múltiples)
       bytes_imagenes = []
       for attachment in imagenes_validas:
         try:
@@ -312,7 +311,6 @@ async def on_message(message):
         except Exception as e:
           print(f"❌ Error al leer el adjunto {attachment.filename}: {e}")
 
-      # 2. PROCESAR CADA IMAGEN DESDE LOS BYTES YA GUARDADOS
       for img_bytes in bytes_imagenes:
         try:
           img_pil = Image.open(io.BytesIO(img_bytes))
@@ -322,13 +320,21 @@ async def on_message(message):
 
           if lineas_extraidas:
             for linea in lineas_extraidas:
-              # Limpiar caracteres sobrantes de markdown por si la IA los incluye
+              # Filtro de limpieza profundo para ignorar líneas conversacionales o de tablas markdown
               linea_limpia = (
                   linea.replace("|", "")
                   .replace("*", "")
                   .replace("`", "")
                   .strip()
               )
+              if (
+                  not linea_limpia
+                  or "aqui tienes" in linea_limpia.lower()
+                  or "tabla" in linea_limpia.lower()
+                  or "columna" in linea_limpia.lower()
+              ):
+                continue
+
               if ":" in linea_limpia:
                 partes = linea_limpia.split(":", 1)
                 nombre_raid = partes[0].strip()
@@ -345,7 +351,6 @@ async def on_message(message):
         except Exception as ex:
           print(f"⚠️ Error procesando imagen en memoria: {ex}")
 
-      # 3. ACTUALIZAR EXCEL Y VALIDAR
       if len(diccionario_raids_consolidado) > 0:
         try:
           wb = cargar_excel()
@@ -417,7 +422,6 @@ async def on_message(message):
               )
               ultimo_mensaje_ronda_id = msg_r.id
 
-          # 4. CONDICIÓN DE BORRADO AUTOMÁTICO
           if casillas_llenas:
             print(
                 "✔️ Verificación exitosa: Rango B2:B15 completo. Borrando"
