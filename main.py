@@ -213,14 +213,15 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (SIN INTERMEDIARIOS DE LIBRERÍA) ---
+# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (VERSIÓN v1 ESTABLE) ---
 def llamar_ia_con_reintentos(img_pil):
   # Convertir la imagen PIL a formato base64 JPEG
   buffered = io.BytesIO()
   img_pil.save(buffered, format="JPEG")
   img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+  # Cambio crítico: Usar la versión v1 oficial estable en lugar de v1beta
+  url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
   headers = {"Content-Type": "application/json"}
 
@@ -250,7 +251,6 @@ def llamar_ia_con_reintentos(img_pil):
       response = requests.post(url, headers=headers, json=payload, timeout=30)
       if response.status_code == 200:
         data = response.json()
-        # Extraer el texto de la respuesta de la API REST
         texto_resultado = (
             data.get("candidates", [{}])[0]
             .get("content", {})
