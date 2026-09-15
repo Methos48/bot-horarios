@@ -1,13 +1,12 @@
 import asyncio
+import base64
 import io
 import os
-import time
 import threading
+import time
 from bs4 import BeautifulSoup
 import discord
 from flask import Flask
-from google import genai
-from google.genai import types
 import openpyxl
 from PIL import Image, ImageDraw, ImageFont
 import requests
@@ -26,8 +25,6 @@ EXCEL_URL = os.getenv(
     "EXCEL_URL",
     "https://1drv.ms/x/c/434ba5d6d0d889c3/IQAwNBrAH5eLQZWV-N3ufOfYAY8sBOApZdxzU8GuWMEBs0E?download=1",
 )
-
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -116,7 +113,9 @@ def generar_imagen_horario_rojo(wb):
 
       color_texto = "#CC0000" if row in [13, 19, 22, 23] else "#003300"
 
-      draw.text((50, y_offset), str(raid_nombre), fill=color_texto, font=font_texto)
+      draw.text(
+          (50, y_offset), str(raid_nombre), fill=color_texto, font=font_texto
+      )
       draw.text((200, y_offset), dia, fill=color_texto, font=font_texto)
       draw.text((310, y_offset), fecha, fill=color_texto, font=font_texto)
       draw.text((530, y_offset), arg, fill=color_texto, font=font_texto)
@@ -214,25 +213,55 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON RUTA ABSOLUTA PARA EVITAR INTERCEPTACIÓN ---
+# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (SIN INTERMEDIARIOS DE LIBRERÍA) ---
 def llamar_ia_con_reintentos(img_pil):
+  # Convertir la imagen PIL a formato base64 JPEG
+  buffered = io.BytesIO()
+  img_pil.save(buffered, format="JPEG")
+  img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+  headers = {"Content-Type": "application/json"}
+
+  payload = {
+      "contents": [{
+          "parts": [
+              {
+                  "inline_data": {
+                      "mime_type": "image/jpeg",
+                      "data": img_base64,
+                  }
+              },
+              {
+                  "text": (
+                      "Extrae la información de los raids de la imagen en un"
+                      " formato estructurado para actualizar la pestaña"
+                      " CALCULADORA (A2:B15) del Excel."
+                  )
+              },
+          ]
+      }]
+  }
+
   intentos = 3
   for i in range(intentos):
     try:
-      img_copia = img_pil.copy()
-      return ai_client.models.generate_content(
-          model="models/gemini-1.5-flash",
-          contents=[
-              img_copia,
-              (
-                  "Extrae la información de los raids de la imagen en un formato"
-                  " estructurado para actualizar la pestaña CALCULADORA"
-                  " (A2:B15) del Excel."
-              ),
-          ],
-      )
+      response = requests.post(url, headers=headers, json=payload, timeout=30)
+      if response.status_code == 200:
+        data = response.json()
+        # Extraer el texto de la respuesta de la API REST
+        texto_resultado = (
+            data.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        return texto_resultado
+      else:
+        raise Exception(f"HTTP {response.status_code}: {response.text}")
     except Exception as ex:
-      print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
+      print(f"⚠️ Intento {i+1} fallido por API REST: {ex}")
       if i < intentos - 1:
         time.sleep(4)
       else:
@@ -253,11 +282,13 @@ async def on_message(message):
         try:
           image_bytes = await attachment.read()
           img_pil = Image.open(io.BytesIO(image_bytes))
-          
-          response = await asyncio.to_thread(llamar_ia_con_reintentos, img_pil)
 
-          if response and response.text:
-            print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
+          texto_respuesta = await asyncio.to_thread(
+              llamar_ia_con_reintentos, img_pil
+          )
+
+          if texto_respuesta:
+            print(f"--- DATOS PROCESADOS POR IA ---\n{texto_respuesta.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
               # 1. Publicar en Canal Horarios
