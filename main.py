@@ -220,19 +220,14 @@ def extraer_datos_imagen(img_pil):
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
   headers = {"Content-Type": "application/json"}
 
-  # Payload con system_instruction para obligar a la IA a no escribir nada conversacional
+  # Prompt súper directo y estricto dentro del mensaje para evitar respuestas conversacionales
+  prompt_estricto = (
+      "Extrae los nombres de los raids y sus horarios de esta imagen."
+      " Devuelve UNICAMENTE lineas con el formato exacto 'Nombre: Horario'."
+      " Prohibido usar saludos, explicaciones, markdown, asteriscos o tablas."
+  )
+
   payload = {
-      "system_instruction": {
-          "parts": [{
-              "text": (
-                  "Eres un script de extracción estricta. Tu única función es"
-                  " leer la imagen y devolver pares de texto separados por"
-                  " dos puntos en formato 'Nombre: Horario'. No saludes, no"
-                  " expliques nada, no uses formato Markdown, negritas, ni"
-                  " tablas."
-              )
-          }]
-      },
       "contents": [{
           "parts": [
               {
@@ -241,14 +236,9 @@ def extraer_datos_imagen(img_pil):
                       "data": img_base64,
                   }
               },
-              {
-                  "text": (
-                      "Extrae todos los raids y horarios visibles en esta"
-                      " imagen."
-                  )
-              },
+              {"text": prompt_estricto},
           ]
-      }],
+      }]
   }
 
   intentos = 3
@@ -314,6 +304,7 @@ async def on_message(message):
 
       raids_oficiales = list(mapa_raids.values())
 
+      # Descargar los bytes de las imágenes antes de procesarlas para evitar 404 por desfase de Discord
       bytes_imagenes = []
       for attachment in imagenes_validas:
         try:
@@ -335,6 +326,7 @@ async def on_message(message):
                   linea.replace("|", "")
                   .replace("*", "")
                   .replace("`", "")
+                  .replace("-", "")
                   .strip()
               )
               if not linea_limpia or ":" not in linea_limpia:
@@ -353,9 +345,9 @@ async def on_message(message):
               if nombre_encontrado and horario:
                 diccionario_raids_consolidado[nombre_encontrado] = horario
 
-          # Pausa de seguridad de 2 segundos entre cada imagen para evitar saturación de la API/Discord
+          # Pausa de 3 segundos entre imágenes para dar respiro a la API y evitar el 404
           if idx_img < len(bytes_imagenes) - 1:
-            time.sleep(2)
+            time.sleep(3)
 
         except Exception as ex:
           print(f"⚠️ Error procesando imagen en memoria: {ex}")
