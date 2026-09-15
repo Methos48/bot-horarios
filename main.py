@@ -214,17 +214,15 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS ---
-def llamar_ia_con_reintentos(image_bytes):
+# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS (PIL) ---
+def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
             return ai_client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-2.5-flash",
                 contents=[
-                    types.Part.from_bytes(
-                        data=image_bytes, mime_type="image/png"
-                    ),
+                    img_pil,
                     (
                         "Extrae la información de los raids de la imagen en un"
                         " formato estructurado para actualizar la pestaña"
@@ -253,9 +251,10 @@ async def on_message(message):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
         try:
           image_bytes = await attachment.read()
+          img_pil = Image.open(io.BytesIO(image_bytes))
           
-          # Se ejecuta completamente en segundo plano sin congelar el hilo de Discord
-          response = await asyncio.to_thread(llamar_ia_con_reintentos, image_bytes)
+          # Se ejecuta completamente en segundo plano sin bloquear el hilo de Discord
+          response = await asyncio.to_thread(llamar_ia_con_reintentos, img_pil)
 
           if response and response.text:
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
