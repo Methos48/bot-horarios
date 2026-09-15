@@ -214,14 +214,14 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON EL MODELO EXACTO REQUERIDO ---
+# --- FUNCIÓN AUXILIAR CON EL PREFIJO EXACTO DE MODELO ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
             img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-3.6-flash",  # Nombre exacto requerido por la API actual
+                model="models/gemini-3.6-flash",  # Forzando el endpoint correcto con el prefijo models/
                 contents=[
                     img_copia,
                     (
