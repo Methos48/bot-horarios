@@ -16,18 +16,15 @@ app = Flask(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# IDs de tus dos canales de prueba configurados
 DISCORD_CANAL_HORARIOS_ID = 1548528724268552263
 DISCORD_CANAL_RONDA_ID = 1548528618949582929
 
-# Ruta local del Excel (si el bot corre localmente y edita el archivo directamente)
 EXCEL_PATH = os.getenv("EXCEL_PATH", "raid_tracker.xlsx")
 
 intents = discord.Intents.default()
 intents.message_content = True
 client_discord = discord.Client(intents=intents)
 
-# Variables para rastrear los mensajes anteriores en cada canal
 ultimo_mensaje_horarios_id = None
 ultimo_mensaje_ronda_id = None
 
@@ -43,7 +40,6 @@ def run_web():
 
 
 def cargar_excel():
-  """Carga el archivo Excel local."""
   try:
     if os.path.exists(EXCEL_PATH):
       return openpyxl.load_workbook(EXCEL_PATH)
@@ -56,7 +52,6 @@ def cargar_excel():
 
 
 def guardar_excel(wb):
-  """Guarda los cambios en el archivo Excel local."""
   try:
     wb.save(EXCEL_PATH)
     return True
@@ -66,7 +61,6 @@ def guardar_excel(wb):
 
 
 def generar_imagen_horario_rojo(wb):
-  """Genera la tarjeta visual de Horario Rojo."""
   try:
     img_width, img_height = 800, 900
     img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
@@ -140,7 +134,6 @@ def generar_imagen_horario_rojo(wb):
 
 
 def generar_imagen_ronda_rojo(wb):
-  """Genera la tarjeta visual de Ronda Rojo (doble columna de nivel 60+)."""
   try:
     img_width, img_height = 850, 950
     img = Image.new("RGB", (img_width, img_height), color="#FDF3D8")
@@ -219,7 +212,6 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN DE LLAMADA A GEMINI PARA UNA IMAGEN INDIVIDUAL ---
 def extraer_datos_imagen(img_pil):
   buffered = io.BytesIO()
   img_pil.save(buffered, format="JPEG")
@@ -228,11 +220,12 @@ def extraer_datos_imagen(img_pil):
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
   headers = {"Content-Type": "application/json"}
 
+  # Prompt estricto para que la IA devuelva texto plano sin formato markdown ni explicaciones
   prompt_instrucciones = (
-      "Analiza esta captura de pantalla de los raids de Lineage II. Extrae el"
-      " nombre de cada raid junto con su horario o estado exacto tal como"
-      " aparece visible en la imagen. Devuelve el resultado en formato"
-      " 'Nombre del Raid: Fecha/Hora' (uno por línea)."
+      "Analiza esta captura de pantalla de los raids. Extrae estrictamente cada"
+      " raid seguido de dos puntos y su horario o estado. NO uses formato de"
+      " tabla markdown ni asteriscos. Ejemplo de formato requerido por línea:"
+      " Valakas: Jueves 17/09 entre 22:30 y 23 hs (ARG)"
   )
 
   payload = {
@@ -272,7 +265,6 @@ def extraer_datos_imagen(img_pil):
         raise ex
 
 
-# --- PROCESAMIENTO AUTOMÁTICO DE MÚLTIPLES IMÁGENES Y UNIFICACIÓN ---
 @client_discord.event
 async def on_message(message):
   global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
@@ -294,7 +286,6 @@ async def on_message(message):
       )
       diccionario_raids_consolidado = {}
 
-      # Lista oficial de los 14 raids en orden exacto (B2 a B15)
       raids_oficiales = [
           "Valakas",
           "Balrog",
@@ -312,51 +303,49 @@ async def on_message(message):
           "Zariche",
       ]
 
-      # Procesar cada imagen adjunta y unificar la información (maneniendo solapes sin conflicto)
+      # 1. PRE-DESCARGAR TODOS LOS BYTES EN MEMORIA PRIMERO (Evita el error 404 de asset not found en imágenes múltiples)
+      bytes_imagenes = []
       for attachment in imagenes_validas:
-        max_intentos = 5
-        intentos_asset = 0
-        exito = False
-        lineas_extraidas = None
+        try:
+          b = await attachment.read()
+          bytes_imagenes.append(b)
+        except Exception as e:
+          print(f"❌ Error al leer el adjunto {attachment.filename}: {e}")
 
-        while intentos_asset < max_intentos and not exito:
-          try:
-            intentos_asset += 1
-            image_bytes = await attachment.read()
-            img_pil = Image.open(io.BytesIO(image_bytes))
+      # 2. PROCESAR CADA IMAGEN DESDE LOS BYTES YA GUARDADOS
+      for img_bytes in bytes_imagenes:
+        try:
+          img_pil = Image.open(io.BytesIO(img_bytes))
+          lineas_extraidas = await asyncio.to_thread(
+              extraer_datos_imagen, img_pil
+          )
 
-            lineas_extraidas = await asyncio.to_thread(
-                extraer_datos_imagen, img_pil
-            )
-            if lineas_extraidas:
-              exito = True
-          except Exception as ex:
-            if intentos_asset < max_intentos:
-              await asyncio.sleep(4)
-            else:
-              print(
-                  f"❌ No se pudo procesar el asset {attachment.filename}: {ex}"
+          if lineas_extraidas:
+            for linea in lineas_extraidas:
+              # Limpiar caracteres sobrantes de markdown por si la IA los incluye
+              linea_limpia = (
+                  linea.replace("|", "")
+                  .replace("*", "")
+                  .replace("`", "")
+                  .strip()
               )
+              if ":" in linea_limpia:
+                partes = linea_limpia.split(":", 1)
+                nombre_raid = partes[0].strip()
+                horario = partes[1].strip()
 
-        if exito and lineas_extraidas:
-          for linea in lineas_extraidas:
-            if ":" in linea:
-              partes = linea.split(":", 1)
-              nombre_raid = partes[0].strip()
-              horario = partes[1].strip()
+                nombre_encontrado = None
+                for oficial in raids_oficiales:
+                  if oficial.lower() in nombre_raid.lower():
+                    nombre_encontrado = oficial
+                    break
 
-              # Normalizar nombres para coincidir con la lista oficial (ej. "Flame of Splendor Barakiel" -> "Barakiel", "Execution Electrical PVP" -> "Electrical")
-              nombre_encontrado = None
-              for oficial in raids_oficiales:
-                if oficial.lower() in nombre_raid.lower():
-                  nombre_encontrado = oficial
-                  break
+                if nombre_encontrado and horario:
+                  diccionario_raids_consolidado[nombre_encontrado] = horario
+        except Exception as ex:
+          print(f"⚠️ Error procesando imagen en memoria: {ex}")
 
-              if nombre_encontrado and horario:
-                # Si se repite entre capturas, se actualiza con el dato más reciente o válido
-                diccionario_raids_consolidado[nombre_encontrado] = horario
-
-      # Verificar que tengamos elementos consolidados y proceder a volcar al Excel
+      # 3. ACTUALIZAR EXCEL Y VALIDAR
       if len(diccionario_raids_consolidado) > 0:
         try:
           wb = cargar_excel()
@@ -368,14 +357,12 @@ async def on_message(message):
                 " consolidados..."
             )
             for idx, raid_oficial in enumerate(raids_oficiales):
-              fila = idx + 2  # De B2 a B15
+              fila = idx + 2
               horario_valor = diccionario_raids_consolidado.get(raid_oficial, "")
               sheet.cell(row=fila, column=2, value=horario_valor)
 
-            # Guardar cambios
             guardar_excel(wb)
 
-          # Validar estrictamente si TODAS las casillas de B2 a B15 quedaron llenas
           wb_verificacion = cargar_excel()
           casillas_llenas = True
           if wb_verificacion and "CALCULADORA" in wb_verificacion.sheetnames:
@@ -386,7 +373,6 @@ async def on_message(message):
                 casillas_llenas = False
                 break
 
-          # Actualizar tarjetas visuales en los canales de Discord
           if wb_verificacion:
             img_horarios = generar_imagen_horario_rojo(wb_verificacion)
             canal_horarios = client_discord.get_channel(
@@ -431,7 +417,7 @@ async def on_message(message):
               )
               ultimo_mensaje_ronda_id = msg_r.id
 
-          # CONDICIÓN ESTRICTA: Si y solo si las casillas B2:B15 están completamente llenas, borramos el mensaje con las fotos
+          # 4. CONDICIÓN DE BORRADO AUTOMÁTICO
           if casillas_llenas:
             print(
                 "✔️ Verificación exitosa: Rango B2:B15 completo. Borrando"
@@ -443,16 +429,14 @@ async def on_message(message):
               print(f"❌ No se pudo borrar el mensaje original: {e}")
           else:
             print(
-                "⚠️ Advertencia: Aún faltan celdas por completar en B2:B15,"
-                " el mensaje original no se borrará hasta tener la"
-                " información completa."
+                "⚠️ Advertencia: Faltan celdas por completar en B2:B15, el"
+                " mensaje original no se borrará."
             )
 
         except Exception as e:
           print(f"❌ Error general procesando el Excel y las imágenes: {e}")
 
 
-# --- INICIO DE PROCESOS (Flask + Discord) ---
 if __name__ == "__main__":
   t = threading.Thread(target=run_web)
   t.daemon = True
