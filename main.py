@@ -20,11 +20,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DISCORD_CANAL_HORARIOS_ID = 1548528724268552263
 DISCORD_CANAL_RONDA_ID = 1548528618949582929
 
-WEB_RAID_URL = "https://www.l2sudamerica.com/?page=boss"
-EXCEL_URL = os.getenv(
-    "EXCEL_URL",
-    "https://1drv.ms/x/c/434ba5d6d0d889c3/IQAwNBrAH5eLQZWV-N3ufOfYAY8sBOApZdxzU8GuWMEBs0E?download=1",
-)
+# Ruta local del Excel (si el bot corre localmente y edita el archivo directamente)
+EXCEL_PATH = os.getenv("EXCEL_PATH", "raid_tracker.xlsx")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -45,18 +42,27 @@ def run_web():
   app.run(host="0.0.0.0", port=port)
 
 
-def descargar_excel_nube():
-  """Descarga el archivo Excel desde OneDrive directamente a la memoria RAM."""
+def cargar_excel():
+  """Carga el archivo Excel local."""
   try:
-    response = requests.get(EXCEL_URL, timeout=20)
-    if response.status_code == 200:
-      return openpyxl.load_workbook(io.BytesIO(response.content))
+    if os.path.exists(EXCEL_PATH):
+      return openpyxl.load_workbook(EXCEL_PATH)
     else:
-      print(f"❌ Error al descargar Excel de OneDrive: {response.status_code}")
+      print(f"❌ No se encontró el archivo Excel en la ruta: {EXCEL_PATH}")
       return None
   except Exception as e:
-    print(f"❌ Excepción al conectar con OneDrive: {e}")
+    print(f"❌ Error al abrir el Excel: {e}")
     return None
+
+
+def guardar_excel(wb):
+  """Guarda los cambios en el archivo Excel local."""
+  try:
+    wb.save(EXCEL_PATH)
+    return True
+  except Exception as e:
+    print(f"❌ Error al guardar el Excel: {e}")
+    return False
 
 
 def generar_imagen_horario_rojo(wb):
@@ -213,17 +219,21 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (VERSIÓN v1 + GEMINI 3.6 FLASH) ---
-def llamar_ia_con_reintentos(img_pil):
-  # Convertir la imagen PIL a formato base64 JPEG
+# --- FUNCIÓN DE LLAMADA A GEMINI PARA UNA IMAGEN INDIVIDUAL ---
+def extraer_datos_imagen(img_pil):
   buffered = io.BytesIO()
   img_pil.save(buffered, format="JPEG")
   img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-  # Endpoint actualizado con el modelo gemini-3.6-flash requerido
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
-
   headers = {"Content-Type": "application/json"}
+
+  prompt_instrucciones = (
+      "Analiza esta captura de pantalla de los raids de Lineage II. Extrae el"
+      " nombre de cada raid junto con su horario o estado exacto tal como"
+      " aparece visible en la imagen. Devuelve el resultado en formato"
+      " 'Nombre del Raid: Fecha/Hora' (uno por línea)."
+  )
 
   payload = {
       "contents": [{
@@ -234,13 +244,7 @@ def llamar_ia_con_reintentos(img_pil):
                       "data": img_base64,
                   }
               },
-              {
-                  "text": (
-                      "Extrae la información de los raids de la imagen en un"
-                      " formato estructurado para actualizar la pestaña"
-                      " CALCULADORA (A2:B15) del Excel."
-                  )
-              },
+              {"text": prompt_instrucciones},
           ]
       }]
   }
@@ -257,7 +261,7 @@ def llamar_ia_con_reintentos(img_pil):
             .get("parts", [{}])[0]
             .get("text", "")
         )
-        return texto_resultado
+        return texto_resultado.strip().split("\n")
       else:
         raise Exception(f"HTTP {response.status_code}: {response.text}")
     except Exception as ex:
@@ -268,121 +272,184 @@ def llamar_ia_con_reintentos(img_pil):
         raise ex
 
 
-# --- PROCESAMIENTO AUTOMÁTICO SEGURO CON REINTENTO DE ASSET ---
+# --- PROCESAMIENTO AUTOMÁTICO DE MÚLTIPLES IMÁGENES Y UNIFICACIÓN ---
 @client_discord.event
 async def on_message(message):
   global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
+
   if message.author == client_discord.user:
     return
 
   if message.attachments:
-    hubo_al_menos_una_procesada = False
+    imagenes_validas = [
+        att
+        for att in message.attachments
+        if att.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+    ]
 
-    for attachment in message.attachments:
-      if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
+    if imagenes_validas:
+      print(
+          f"📸 Mensaje detectado con {len(imagenes_validas)} imagen(es) de"
+          " raids."
+      )
+      diccionario_raids_consolidado = {}
 
-        # Bucle de reintentos totales para descargar el asset de Discord y procesarlo
+      # Lista oficial de los 14 raids en orden exacto (B2 a B15)
+      raids_oficiales = [
+          "Valakas",
+          "Balrog",
+          "Barakiel",
+          "Core",
+          "Orfen",
+          "Antharas",
+          "Electrical",
+          "Baium",
+          "Zaken",
+          "Frintezza",
+          "Fafureon",
+          "Queen Ant",
+          "Freya",
+          "Zariche",
+      ]
+
+      # Procesar cada imagen adjunta y unificar la información (maneniendo solapes sin conflicto)
+      for attachment in imagenes_validas:
         max_intentos = 5
         intentos_asset = 0
         exito = False
-        texto_respuesta = None
+        lineas_extraidas = None
 
         while intentos_asset < max_intentos and not exito:
           try:
             intentos_asset += 1
-            print(
-                f"🔄 Intentando descargar y procesar imagen (Intento"
-                f" {intentos_asset}/{max_intentos})..."
-            )
-
-            # Descarga de la imagen con reintento ante fallos de Discord (asset not found)
             image_bytes = await attachment.read()
             img_pil = Image.open(io.BytesIO(image_bytes))
 
-            texto_respuesta = await asyncio.to_thread(
-                llamar_ia_con_reintentos, img_pil
+            lineas_extraidas = await asyncio.to_thread(
+                extraer_datos_imagen, img_pil
             )
-            if texto_respuesta:
+            if lineas_extraidas:
               exito = True
-
           except Exception as ex:
-            print(
-                f"⚠️ Falló el intento {intentos_asset} para el asset/IA: {ex}"
-            )
             if intentos_asset < max_intentos:
               await asyncio.sleep(4)
             else:
               print(
-                  "❌ Se agotaron todos los reintentos para procesar esta"
-                  " imagen."
+                  f"❌ No se pudo procesar el asset {attachment.filename}: {ex}"
               )
 
-        if exito and texto_respuesta:
-          try:
-            print(f"--- DATOS PROCESADOS POR IA ---\n{texto_respuesta.strip()}")
-            wb = descargar_excel_nube()
-            if wb and "CALCULADORA" in wb.sheetnames:
-              # 1. Publicar en Canal Horarios
-              img_horarios = generar_imagen_horario_rojo(wb)
-              canal_horarios = client_discord.get_channel(
-                  int(DISCORD_CANAL_HORARIOS_ID)
+        if exito and lineas_extraidas:
+          for linea in lineas_extraidas:
+            if ":" in linea:
+              partes = linea.split(":", 1)
+              nombre_raid = partes[0].strip()
+              horario = partes[1].strip()
+
+              # Normalizar nombres para coincidir con la lista oficial (ej. "Flame of Splendor Barakiel" -> "Barakiel", "Execution Electrical PVP" -> "Electrical")
+              nombre_encontrado = None
+              for oficial in raids_oficiales:
+                if oficial.lower() in nombre_raid.lower():
+                  nombre_encontrado = oficial
+                  break
+
+              if nombre_encontrado and horario:
+                # Si se repite entre capturas, se actualiza con el dato más reciente o válido
+                diccionario_raids_consolidado[nombre_encontrado] = horario
+
+      # Verificar que tengamos elementos consolidados y proceder a volcar al Excel
+      if len(diccionario_raids_consolidado) > 0:
+        try:
+          wb = cargar_excel()
+          if wb and "CALCULADORA" in wb.sheetnames:
+            sheet = wb["CALCULADORA"]
+
+            print(
+                "✍️ Rellenando la columna B (B2:B15) con los datos"
+                " consolidados..."
+            )
+            for idx, raid_oficial in enumerate(raids_oficiales):
+              fila = idx + 2  # De B2 a B15
+              horario_valor = diccionario_raids_consolidado.get(raid_oficial, "")
+              sheet.cell(row=fila, column=2, value=horario_valor)
+
+            # Guardar cambios
+            guardar_excel(wb)
+
+          # Validar estrictamente si TODAS las casillas de B2 a B15 quedaron llenas
+          wb_verificacion = cargar_excel()
+          casillas_llenas = True
+          if wb_verificacion and "CALCULADORA" in wb_verificacion.sheetnames:
+            sheet_v = wb_verificacion["CALCULADORA"]
+            for row in range(2, 16):
+              val = sheet_v.cell(row=row, column=2).value
+              if not val or str(val).strip() == "":
+                casillas_llenas = False
+                break
+
+          # Actualizar tarjetas visuales en los canales de Discord
+          if wb_verificacion:
+            img_horarios = generar_imagen_horario_rojo(wb_verificacion)
+            canal_horarios = client_discord.get_channel(
+                int(DISCORD_CANAL_HORARIOS_ID)
+            )
+            if canal_horarios and img_horarios:
+              if ultimo_mensaje_horarios_id:
+                try:
+                  msg_ant = await canal_horarios.fetch_message(
+                      ultimo_mensaje_horarios_id
+                  )
+                  await msg_ant.delete()
+                except:
+                  pass
+              f_horarios = discord.File(
+                  fp=img_horarios, filename="Horario_Rojo.png"
               )
-              if canal_horarios and img_horarios:
-                if ultimo_mensaje_horarios_id:
-                  try:
-                    msg_ant = await canal_horarios.fetch_message(
-                        ultimo_mensaje_horarios_id
-                    )
-                    await msg_ant.delete()
-                  except:
-                    pass
-
-                f_horarios = discord.File(
-                    fp=img_horarios, filename="Horario_Rojo.png"
-                )
-                msg_h = await canal_horarios.send(
-                    "🔥 **HORARIOS DE RAIDS ACTUALIZADOS (vía imagen):**",
-                    file=f_horarios,
-                )
-                ultimo_mensaje_horarios_id = msg_h.id
-
-              # 2. Publicar en Canal Ronda Rojo
-              img_ronda = generar_imagen_ronda_rojo(wb)
-              canal_ronda = client_discord.get_channel(
-                  int(DISCORD_CANAL_RONDA_ID)
+              msg_h = await canal_horarios.send(
+                  "🔥 **HORARIOS DE RAIDS ACTUALIZADOS (vía imagen):**",
+                  file=f_horarios,
               )
-              if canal_ronda and img_ronda:
-                if ultimo_mensaje_ronda_id:
-                  try:
-                    msg_ant_r = await canal_ronda.fetch_message(
-                        ultimo_mensaje_ronda_id
-                    )
-                    await msg_ant_r.delete()
-                  except:
-                    pass
+              ultimo_mensaje_horarios_id = msg_h.id
 
-                f_ronda = discord.File(
-                    fp=img_ronda, filename="Ronda_Rojo.png"
-                )
-                msg_r = await canal_ronda.send(
-                    "⚔️ **RONDA ROJO (Nivel 60+) ACTUALIZADA (vía"
-                    " imagen):**",
-                    file=f_ronda,
-                )
-                ultimo_mensaje_ronda_id = msg_r.id
+            img_ronda = generar_imagen_ronda_rojo(wb_verificacion)
+            canal_ronda = client_discord.get_channel(
+                int(DISCORD_CANAL_RONDA_ID)
+            )
+            if canal_ronda and img_ronda:
+              if ultimo_mensaje_ronda_id:
+                try:
+                  msg_ant_r = await canal_ronda.fetch_message(
+                      ultimo_mensaje_ronda_id
+                  )
+                  await msg_ant_r.delete()
+                except:
+                  pass
+              f_ronda = discord.File(fp=img_ronda, filename="Ronda_Rojo.png")
+              msg_r = await canal_ronda.send(
+                  "⚔️ **RONDA ROJO (Nivel 60+) ACTUALIZADA (vía"
+                  " imagen):**",
+                  file=f_ronda,
+              )
+              ultimo_mensaje_ronda_id = msg_r.id
 
-            hubo_al_menos_una_procesada = True
+          # CONDICIÓN ESTRICTA: Si y solo si las casillas B2:B15 están completamente llenas, borramos el mensaje con las fotos
+          if casillas_llenas:
+            print(
+                "✔️ Verificación exitosa: Rango B2:B15 completo. Borrando"
+                " mensaje original de las fotos..."
+            )
+            try:
+              await message.delete()
+            except Exception as e:
+              print(f"❌ No se pudo borrar el mensaje original: {e}")
+          else:
+            print(
+                "⚠️ Advertencia: Aún faltan celdas por completar en B2:B15,"
+                " el mensaje original no se borrará hasta tener la"
+                " información completa."
+            )
 
-          except Exception as e:
-            print(f"❌ Error al generar o publicar las tarjetas en Discord: {e}")
-
-    # Borramos el mensaje original SOLAMENTE al terminar de procesar todas las imágenes
-    if hubo_al_menos_una_procesada:
-      try:
-        await message.delete()
-      except:
-        pass
+        except Exception as e:
+          print(f"❌ Error general procesando el Excel y las imágenes: {e}")
 
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
