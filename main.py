@@ -214,14 +214,14 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON ALIAS GENÉRICO INMUNE A CAMBIOS DE VERSIÓN ---
+# --- FUNCIÓN AUXILIAR CON EL MODELO EXACTO QUE EXIGE EL ENTORNO ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
             img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-flash",  # Alias genérico que redirige automáticamente al flash disponible sin romperse
+                model="gemini-3.6-flash",  # Nombre exacto que demanda la librería instalada
                 contents=[
                     img_copia,
                     (
