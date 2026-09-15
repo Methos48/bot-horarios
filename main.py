@@ -1,6 +1,3 @@
-import asyncio
-import base64
-import io
 import os
 import threading
 import time
@@ -213,15 +210,15 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (VERSIÓN v1 ESTABLE) ---
+# --- FUNCIÓN DE LLAMADA DIRECTA POR API REST (VERSIÓN v1 + GEMINI 2.0 FLASH) ---
 def llamar_ia_con_reintentos(img_pil):
   # Convertir la imagen PIL a formato base64 JPEG
   buffered = io.BytesIO()
   img_pil.save(buffered, format="JPEG")
   img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-  # Cambio crítico: Usar la versión v1 oficial estable en lugar de v1beta
-  url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+  # Endpoint actualizado con gemini-2.0-flash y API v1 estable
+  url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
   headers = {"Content-Type": "application/json"}
 
