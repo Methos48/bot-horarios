@@ -220,14 +220,19 @@ def extraer_datos_imagen(img_pil):
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
   headers = {"Content-Type": "application/json"}
 
-  prompt_instrucciones = (
-      "Extrae de esta imagen los nombres de los raids y sus horarios."
-      " Responde unicamente con texto plano, una linea por cada raid, con el"
-      " formato 'NombreRaid: Horario'. No uses markdown, ni asteriscos, ni"
-      " tablas."
-  )
-
+  # Payload con system_instruction para obligar a la IA a no escribir nada conversacional
   payload = {
+      "system_instruction": {
+          "parts": [{
+              "text": (
+                  "Eres un script de extracción estricta. Tu única función es"
+                  " leer la imagen y devolver pares de texto separados por"
+                  " dos puntos en formato 'Nombre: Horario'. No saludes, no"
+                  " expliques nada, no uses formato Markdown, negritas, ni"
+                  " tablas."
+              )
+          }]
+      },
       "contents": [{
           "parts": [
               {
@@ -236,9 +241,14 @@ def extraer_datos_imagen(img_pil):
                       "data": img_base64,
                   }
               },
-              {"text": prompt_instrucciones},
+              {
+                  "text": (
+                      "Extrae todos los raids y horarios visibles en esta"
+                      " imagen."
+                  )
+              },
           ]
-      }]
+      }],
   }
 
   intentos = 3
@@ -285,7 +295,6 @@ async def on_message(message):
       )
       diccionario_raids_consolidado = {}
 
-      # Mapeo flexible de palabras clave para asegurar que reconozca cualquier variante de nombre
       mapa_raids = {
           "valakas": "Valakas",
           "balrog": "Balrog",
@@ -313,7 +322,7 @@ async def on_message(message):
         except Exception as e:
           print(f"❌ Error al leer el adjunto {attachment.filename}: {e}")
 
-      for img_bytes in bytes_imagenes:
+      for idx_img, img_bytes in enumerate(bytes_imagenes):
         try:
           img_pil = Image.open(io.BytesIO(img_bytes))
           lineas_extraidas = await asyncio.to_thread(
@@ -322,34 +331,32 @@ async def on_message(message):
 
           if lineas_extraidas:
             for linea in lineas_extraidas:
-              # Limpieza profunda de asteriscos, guiones, pipes, etc.
               linea_limpia = (
                   linea.replace("|", "")
                   .replace("*", "")
                   .replace("`", "")
                   .strip()
               )
-              if (
-                  not linea_limpia
-                  or "aqui tienes" in linea_limpia.lower()
-                  or "tabla" in linea_limpia.lower()
-                  or "columna" in linea_limpia.lower()
-              ):
+              if not linea_limpia or ":" not in linea_limpia:
                 continue
 
-              if ":" in linea_limpia:
-                partes = linea_limpia.split(":", 1)
-                nombre_leido = partes[0].strip().lower()
-                horario = partes[1].strip()
+              partes = linea_limpia.split(":", 1)
+              nombre_leido = partes[0].strip().lower()
+              horario = partes[1].strip()
 
-                nombre_encontrado = None
-                for clave, oficial in mapa_raids.items():
-                  if clave in nombre_leido:
-                    nombre_encontrado = oficial
-                    break
+              nombre_encontrado = None
+              for clave, oficial in mapa_raids.items():
+                if clave in nombre_leido:
+                  nombre_encontrado = oficial
+                  break
 
-                if nombre_encontrado and horario:
-                  diccionario_raids_consolidado[nombre_encontrado] = horario
+              if nombre_encontrado and horario:
+                diccionario_raids_consolidado[nombre_encontrado] = horario
+
+          # Pausa de seguridad de 2 segundos entre cada imagen para evitar saturación de la API/Discord
+          if idx_img < len(bytes_imagenes) - 1:
+            time.sleep(2)
+
         except Exception as ex:
           print(f"⚠️ Error procesando imagen en memoria: {ex}")
 
