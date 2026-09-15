@@ -19,7 +19,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DISCORD_CANAL_HORARIOS_ID = 1548528724268552263
 DISCORD_CANAL_RONDA_ID = 1548528618949582929
 
-EXCEL_PATH = os.getenv("EXCEL_PATH", "raid_tracker.xlsx")
+EXCEL_PATH = os.getenv("EXCEL_PATH", "Calculadora de RAID.xlsx")
 
 intents = discord.Intents.default()
 intents.message_content = True
