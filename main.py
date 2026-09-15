@@ -214,15 +214,17 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS (PIL) ---
+# --- FUNCIÓN AUXILIAR DE LLAMADA A LA IA CON REINTENTOS Y COPIA AISLADA ---
 def llamar_ia_con_reintentos(img_pil):
     intentos = 3
     for i in range(intentos):
         try:
+            # Creamos una copia fresca y aislada en cada intento para evitar conflictos de assets
+            img_copia = img_pil.copy()
             return ai_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=[
-                    img_pil,
+                    img_copia,
                     (
                         "Extrae la información de los raids de la imagen en un"
                         " formato estructurado para actualizar la pestaña"
