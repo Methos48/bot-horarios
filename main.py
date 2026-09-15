@@ -220,7 +220,6 @@ def extraer_datos_imagen(img_pil):
   url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
   headers = {"Content-Type": "application/json"}
 
-  # Prompt ultra-estricto para prohibir texto explicativo o tablas Markdown
   prompt_instrucciones = (
       "Extrae de esta imagen los nombres de los raids y sus horarios o"
       " estados. Devuelve UNICAMENTE líneas con el formato exacto"
@@ -320,7 +319,6 @@ async def on_message(message):
 
           if lineas_extraidas:
             for linea in lineas_extraidas:
-              # Filtro de limpieza profundo para ignorar líneas conversacionales o de tablas markdown
               linea_limpia = (
                   linea.replace("|", "")
                   .replace("*", "")
