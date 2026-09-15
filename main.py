@@ -268,7 +268,7 @@ def llamar_ia_con_reintentos(img_pil):
         raise ex
 
 
-# --- PROCESAMIENTO AUTOMÁTICO SEGURO ---
+# --- PROCESAMIENTO AUTOMÁTICO SEGURO CON REINTENTO DE ASSET ---
 @client_discord.event
 async def on_message(message):
   global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
@@ -279,15 +279,45 @@ async def on_message(message):
     for attachment in message.attachments:
       if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         print(f"📸 Nueva imagen de raids detectada: {attachment.filename}")
-        try:
-          image_bytes = await attachment.read()
-          img_pil = Image.open(io.BytesIO(image_bytes))
 
-          texto_respuesta = await asyncio.to_thread(
-              llamar_ia_con_reintentos, img_pil
-          )
+        # Bucle de reintentos totales para descargar el asset de Discord y procesarlo
+        max_intentos = 5
+        intentos_asset = 0
+        exito = False
+        texto_respuesta = None
 
-          if texto_respuesta:
+        while intentos_asset < max_intentos and not exito:
+          try:
+            intentos_asset += 1
+            print(
+                f"🔄 Intentando descargar y procesar imagen (Intento"
+                f" {intentos_asset}/{max_intentos})..."
+            )
+
+            # Descarga de la imagen con reintento ante fallos de Discord (asset not found)
+            image_bytes = await attachment.read()
+            img_pil = Image.open(io.BytesIO(image_bytes))
+
+            texto_respuesta = await asyncio.to_thread(
+                llamar_ia_con_reintentos, img_pil
+            )
+            if texto_respuesta:
+              exito = True
+
+          except Exception as ex:
+            print(
+                f"⚠️ Falló el intento {intentos_asset} para el asset/IA: {ex}"
+            )
+            if intentos_asset < max_intentos:
+              await asyncio.sleep(4)
+            else:
+              print(
+                  "❌ Se agotaron todos los reintentos para procesar esta"
+                  " imagen."
+              )
+
+        if exito and texto_respuesta:
+          try:
             print(f"--- DATOS PROCESADOS POR IA ---\n{texto_respuesta.strip()}")
             wb = descargar_excel_nube()
             if wb and "CALCULADORA" in wb.sheetnames:
@@ -340,10 +370,10 @@ async def on_message(message):
                 )
                 ultimo_mensaje_ronda_id = msg_r.id
 
-          await message.delete()
+            await message.delete()
 
-        except Exception as e:
-          print(f"❌ Error definitivo procesando la imagen tras reintentos: {e}")
+          except Exception as e:
+            print(f"❌ Error al generar o publicar las tarjetas en Discord: {e}")
 
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
