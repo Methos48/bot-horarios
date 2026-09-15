@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import time
 import threading
 from bs4 import BeautifulSoup
 import discord
@@ -213,7 +214,7 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- PROCESAMIENTO AUTOMÁTICO CUANDO SUBES LA IMAGEN A DISCORD ---
+# --- PROCESAMIENTO AUTOMÁTICO CON REINTENTO INTELIGENTE ANTE 503 ---
 @client_discord.event
 async def on_message(message):
   global ultimo_mensaje_horarios_id, ultimo_mensaje_ronda_id
@@ -227,23 +228,31 @@ async def on_message(message):
         try:
           image_bytes = await attachment.read()
           
-          # Función auxiliar para llamar a la IA de manera segura en un hilo secundario
-          def llamar_ia():
-              return ai_client.models.generate_content(
-                  model="gemini-3.8-flash",
-                  contents=[
-                      types.Part.from_bytes(
-                          data=image_bytes, mime_type="image/png"
-                      ),
-                      (
-                          "Extrae la información de los raids de la imagen en un"
-                          " formato estructurado para actualizar la pestaña"
-                          " CALCULADORA (A2:B15) del Excel."
-                      ),
-                  ],
-              )
+          def llamar_ia_con_reintentos():
+              intentos = 3
+              for i in range(intentos):
+                  try:
+                      return ai_client.models.generate_content(
+                          model="gemini-3.8-flash",
+                          contents=[
+                              types.Part.from_bytes(
+                                  data=image_bytes, mime_type="image/png"
+                              ),
+                              (
+                                  "Extrae la información de los raids de la imagen en un"
+                                  " formato estructurado para actualizar la pestaña"
+                                  " CALCULADORA (A2:B15) del Excel."
+                              ),
+                          ],
+                      )
+                  except Exception as ex:
+                      print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
+                      if i < intentos - 1:
+                          time.sleep(4) # Espera 4 segundos antes de reintentar
+                      else:
+                          raise ex
 
-          response = await asyncio.to_thread(llamar_ia)
+          response = await asyncio.to_thread(llamar_ia_con_reintentos)
 
           if response and response.text:
             print(f"--- DATOS PROCESADOS POR IA ---\n{response.text.strip()}")
@@ -302,7 +311,7 @@ async def on_message(message):
           await message.delete()
 
         except Exception as e:
-          print(f"Error procesando la imagen: {e}")
+          print(f"❌ Error definitivo procesando la imagen tras reintentos: {e}")
 
 
 # --- INICIO DE PROCESOS (Flask + Discord) ---
