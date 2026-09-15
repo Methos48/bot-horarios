@@ -214,29 +214,29 @@ async def on_ready():
   print(f"🤖 Bot conectado exitosamente como {client_discord.user}")
 
 
-# --- FUNCIÓN AUXILIAR CON EL MODELO COMPATIBLE Y ESTABLE ---
+# --- FUNCIÓN AUXILIAR CON RUTA ABSOLUTA PARA EVITAR INTERCEPTACIÓN ---
 def llamar_ia_con_reintentos(img_pil):
-    intentos = 3
-    for i in range(intentos):
-        try:
-            img_copia = img_pil.copy()
-            return ai_client.models.generate_content(
-                model="gemini-1.5-flash",  # Modelo estable plenamente soportado
-                contents=[
-                    img_copia,
-                    (
-                        "Extrae la información de los raids de la imagen en un"
-                        " formato estructurado para actualizar la pestaña"
-                        " CALCULADORA (A2:B15) del Excel."
-                    ),
-                ],
-            )
-        except Exception as ex:
-            print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
-            if i < intentos - 1:
-                time.sleep(4)
-            else:
-                raise ex
+  intentos = 3
+  for i in range(intentos):
+    try:
+      img_copia = img_pil.copy()
+      return ai_client.models.generate_content(
+          model="models/gemini-1.5-flash",
+          contents=[
+              img_copia,
+              (
+                  "Extrae la información de los raids de la imagen en un formato"
+                  " estructurado para actualizar la pestaña CALCULADORA"
+                  " (A2:B15) del Excel."
+              ),
+          ],
+      )
+    except Exception as ex:
+      print(f"⚠️ Intento {i+1} fallido por alta demanda o red: {ex}")
+      if i < intentos - 1:
+        time.sleep(4)
+      else:
+        raise ex
 
 
 # --- PROCESAMIENTO AUTOMÁTICO SEGURO ---
