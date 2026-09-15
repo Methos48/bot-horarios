@@ -227,7 +227,7 @@ async def on_message(message):
         try:
           image_bytes = await attachment.read()
           
-          # Función para ejecutar la IA de forma segura en un hilo separado
+          # Función auxiliar para llamar a la IA de manera segura en un hilo secundario
           def llamar_ia():
               return ai_client.models.generate_content(
                   model="gemini-3.8-flash",
