@@ -221,10 +221,10 @@ def extraer_datos_imagen(img_pil):
   headers = {"Content-Type": "application/json"}
 
   prompt_instrucciones = (
-      "Extrae de esta imagen los nombres de los raids y sus horarios o"
-      " estados. Devuelve UNICAMENTE líneas con el formato exacto"
-      " 'NombreRaid: Horario'. No agregues saludos, explicaciones, ni formato"
-      " de tabla markdown (nada de guiones, pipes o asteriscos)."
+      "Extrae de esta imagen los nombres de los raids y sus horarios."
+      " Responde unicamente con texto plano, una linea por cada raid, con el"
+      " formato 'NombreRaid: Horario'. No uses markdown, ni asteriscos, ni"
+      " tablas."
   )
 
   payload = {
@@ -285,22 +285,25 @@ async def on_message(message):
       )
       diccionario_raids_consolidado = {}
 
-      raids_oficiales = [
-          "Valakas",
-          "Balrog",
-          "Barakiel",
-          "Core",
-          "Orfen",
-          "Antharas",
-          "Electrical",
-          "Baium",
-          "Zaken",
-          "Frintezza",
-          "Fafureon",
-          "Queen Ant",
-          "Freya",
-          "Zariche",
-      ]
+      # Mapeo flexible de palabras clave para asegurar que reconozca cualquier variante de nombre
+      mapa_raids = {
+          "valakas": "Valakas",
+          "balrog": "Balrog",
+          "barakiel": "Barakiel",
+          "core": "Core",
+          "orfen": "Orfen",
+          "antharas": "Antharas",
+          "electrical": "Electrical",
+          "baium": "Baium",
+          "zaken": "Zaken",
+          "frintezza": "Frintezza",
+          "fafureon": "Fafureon",
+          "queen ant": "Queen Ant",
+          "freya": "Freya",
+          "zariche": "Zariche",
+      }
+
+      raids_oficiales = list(mapa_raids.values())
 
       bytes_imagenes = []
       for attachment in imagenes_validas:
@@ -319,6 +322,7 @@ async def on_message(message):
 
           if lineas_extraidas:
             for linea in lineas_extraidas:
+              # Limpieza profunda de asteriscos, guiones, pipes, etc.
               linea_limpia = (
                   linea.replace("|", "")
                   .replace("*", "")
@@ -335,12 +339,12 @@ async def on_message(message):
 
               if ":" in linea_limpia:
                 partes = linea_limpia.split(":", 1)
-                nombre_raid = partes[0].strip()
+                nombre_leido = partes[0].strip().lower()
                 horario = partes[1].strip()
 
                 nombre_encontrado = None
-                for oficial in raids_oficiales:
-                  if oficial.lower() in nombre_raid.lower():
+                for clave, oficial in mapa_raids.items():
+                  if clave in nombre_leido:
                     nombre_encontrado = oficial
                     break
 
