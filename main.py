@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from datetime import datetime
 from flask import Flask
 import discord
 from discord.ext import commands, tasks
@@ -25,8 +26,8 @@ logger = logging.getLogger("BotMain")
 
 # --- MEMORIA EN TIEMPO REAL ---
 MEMORIA_JEFES = {
-    "tabla_1": [],
-    "tabla_2": [],
+    "tabla_60_plus": [],  # Tabla 1 (60+) integrada con manuales
+    "tabla_raids": [],    # Tabla 2 (la otra lista, independiente)
     "horarios_manuales": []
 }
 
@@ -54,34 +55,95 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+def ordenar_y_priorizar(lista_jefes):
+    """
+    Ordena una lista de diccionarios de jefes:
+    1. Primero los que están 'Alive' o 'Vivo'.
+    2. Luego cronológicamente por fecha/hora (lo más cercano arriba).
+    """
+    if not lista_jefes:
+        return []
+
+    def clave_orden(item):
+        tiempo = str(item.get("tiempo_str", "")).lower()
+        es_vivo = "alive" in tiempo or "vivo" in tiempo
+        # True (0) va antes que False (1), luego ordena por el datetime guardado
+        return (0 if es_vivo else 1, item.get("datetime", datetime.max))
+
+    return sorted(lista_jefes, key=clave_orden)
+
+def procesar_integracion_y_filtrado():
+    """
+    Integra la lista 60+ (tabla_1 web) con los horarios manuales,
+    ordena ambas tablas aplicando la regla de Vivos primero y cronológico después,
+    y prepara los filtros específicos para cada salida.
+    """
+    # 1. Integrar tabla 60+ con manuales (si los hay)
+    tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
+    manuales = MEMORIA_JEFES.get("horarios_manuales", [])
+    
+    # Si hay manuales, los fusionamos/priorizamos con la tabla 60+
+    tabla_60_integrada = tabla_60_base + manuales
+    
+    # Ordenar ambas tablas principales
+    tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
+    tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
+
+    # Consolidado total para 'ronda'
+    todos_los_datos = ordenar_y_priorizar(tabla_60_ordenada + tabla_raids_ordenada)
+
+    # 2. Filtrados específicos
+    # Lista blanca para salida_horario (normalizada a minúsculas para comparar)
+    wh_horario = {
+        "valakas", "core", "orfen", "antharas", "baium", "zaken", 
+        "frintezza", "fafurion", "fafureon", "queen ant", "freya", 
+        "zariche", "asedio", "p v p", "x 9", "foto mes"
+    }
+    
+    # Lista para salida_ma (Valakas, Antharas, Fafurion/Fafureon)
+    wh_ma = {"valakas", "antharas", "fafurion", "fafureon"}
+
+    datos_horario = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_horario]
+    datos_ma = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_ma]
+
+    return {
+        "tabla_60_plus": tabla_60_ordenada,
+        "tabla_raids": tabla_raids_ordenada,
+        "salida_horario_data": datos_horario,
+        "salida_ma_data": datos_ma,
+        "salida_ronda_data": todos_los_datos,
+        "salida_raid_data": tabla_raids_ordenada
+    }
+
 async def disparar_salidas(bot_instance):
     """
-    Función centralizada para enviar la memoria actualizada a los 4 servicios de salida.
+    Envía los datos procesados y filtrados a los 4 servicios de salida.
     """
-    logger.info("🚀 Enviando datos actualizados a los servicios de salida...")
+    logger.info("🚀 Procesando y enviando datos filtrados a los servicios de salida...")
     try:
-        # 1. salida_horario
-        await salida_horario.ejecutar(bot_instance, MEMORIA_JEFES)
+        datos_procesados = procesar_integracion_y_filtrado()
+
+        # 1. salida_horario (Solo los raids/eventos permitidos)
+        await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         
-        # 2. salida_ma
-        await salida_ma.ejecutar(bot_instance, MEMORIA_JEFES)
+        # 2. salida_ma (Solo Valakas, Antharas y Fafureon)
+        await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         
-        # 3. salida_ronda
-        await salida_ronda.ejecutar(bot_instance, MEMORIA_JEFES)
+        # 3. salida_ronda (Todos los jefes integrados y ordenados)
+        await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         
-        # 4. salida_raid
-        await salida_raid.ejecutar(bot_instance, MEMORIA_JEFES)
+        # 4. salida_raid (La segunda tabla independiente de raids)
+        await salida_raid.ejecutar(bot_instance, datos_procesados["salida_raid_data"])
         
-        logger.info("✅ Todos los servicios de salida ejecutados correctamente.")
+        logger.info("✅ Todos los servicios de salida ejecutados y despachados con éxito.")
     except Exception as e:
-        logger.error(f"Error al enviar datos a los servicios de salida: {e}")
+        logger.error(f"Error al despachar los servicios de salida: {e}")
 
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
     logger.info("Sistema operando completamente en memoria (sin archivos Excel).")
     
-    # Iniciar la tarea automática de rastreo web
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
 
@@ -90,16 +152,14 @@ async def on_ready():
 async def auto_monitor_web():
     logger.info("🔍 [Automático] Rastreando la página web de los jefes...")
     try:
-        # Llamamos a la entrada web para obtener las dos tablas ordenadas
+        # entrada_paguina devuelve dos tablas: t1 (60+) y t2 (la otra)
         t1, t2 = entrada_paguina.obtener_datos_web()
         
         if t1 or t2:
-            # Guardamos la información directamente en la memoria central del main
-            MEMORIA_JEFES["tabla_1"] = t1
-            MEMORIA_JEFES["tabla_2"] = t2
-            logger.info(f"💾 Memoria actualizada (Web): Tabla 1 ({len(t1)} jefes) | Tabla 2 ({len(t2)} jefes)")
+            MEMORIA_JEFES["tabla_60_plus"] = t1
+            MEMORIA_JEFES["tabla_raids"] = t2
+            logger.info(f"💾 Memoria actualizada (Web): Tabla 60+ ({len(t1)} jefes) | Tabla Raids ({len(t2)} jefes)")
             
-            # Enviar datos actualizados a los 4 servicios de salida
             await disparar_salidas(bot)
             
     except Exception as e:
@@ -116,36 +176,30 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Validar si el mensaje proviene del canal de carga configurado en config.py
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
         try:
             horarios_procesados = []
 
-            # 1. CASO IMAGEN: Si el usuario adjuntó una imagen
+            # 1. CASO IMAGEN
             if message.attachments:
                 for attachment in message.attachments:
                     if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
                         logger.info(f"🖼️ Imagen detectada en el canal de carga: {attachment.filename}")
                         imagen_bytes = await attachment.read()
-                        # Procesamos con entrada_imagen (Gemini + filtros + orden de vivos)
                         horarios_procesados = entrada_imagen.procesar_imagen_jefes(imagen_bytes)
                         break
 
-            # 2. CASO TEXTO: Si el usuario envió un bloque de texto plano
+            # 2. CASO TEXTO
             elif message.content:
                 logger.info("📥 Bloque de texto detectado en el canal de carga.")
-                # Procesamos con entrada_texto (filtros + ordenamiento)
                 horarios_procesados = entrada_texto.procesar_y_ordenar_texto(message.content)
 
-            # Si obtuvimos resultados válidos, actualizamos la memoria
             if horarios_procesados:
                 MEMORIA_JEFES["horarios_manuales"] = horarios_procesados
                 logger.info(f"💾 Memoria actualizada (Entrada Manual): {len(horarios_procesados)} registros cargados.")
                 
-                # Enviar datos actualizados a los 4 servicios de salida
                 await disparar_salidas(bot)
 
-            # 3. Limpiar el mensaje original del usuario para mantener el canal impecable
             await message.delete()
             logger.info("🗑️ Mensaje original eliminado limpiamente del canal.")
 
@@ -155,10 +209,8 @@ async def on_message(message):
     await bot.process_commands(message)
 
 if __name__ == "__main__":
-    # Arrancar el servidor web de respaldo para Railway
     keep_alive()
     
-    # Arrancar el bot de Discord utilizando el token de configuración
     if config.DISCORD_TOKEN:
         bot.run(config.DISCORD_TOKEN)
     else:
