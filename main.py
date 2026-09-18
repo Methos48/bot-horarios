@@ -67,40 +67,34 @@ def ordenar_y_priorizar(lista_jefes):
     def clave_orden(item):
         tiempo = str(item.get("tiempo_str", "")).lower()
         es_vivo = "alive" in tiempo or "vivo" in tiempo
-        # True (0) va antes que False (1), luego ordena por el datetime guardado
         return (0 if es_vivo else 1, item.get("datetime", datetime.max))
 
     return sorted(lista_jefes, key=clave_orden)
 
 def procesar_integracion_y_filtrado():
     """
-    Integra la lista 60+ (tabla_1 web) con los horarios manuales,
-    ordena ambas tablas aplicando la regla de Vivos primero y cronológico después,
-    y prepara los filtros específicos para cada salida.
+    Integra la lista 60+ con los manuales, ordena ambas tablas,
+    y aplica los filtros específicos para cada salida.
     """
     # 1. Integrar tabla 60+ con manuales (si los hay)
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-    
-    # Si hay manuales, los fusionamos/priorizamos con la tabla 60+
     tabla_60_integrada = tabla_60_base + manuales
     
-    # Ordenar ambas tablas principales
+    # Ordenar ambas tablas principales (la otra tabla de raids NUNCA se integra con nada, solo se ordena)
     tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
     tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
 
-    # Consolidado total para 'ronda'
+    # Consolidado total para 'ronda' (integra todo)
     todos_los_datos = ordenar_y_priorizar(tabla_60_ordenada + tabla_raids_ordenada)
 
     # 2. Filtrados específicos
-    # Lista blanca para salida_horario (normalizada a minúsculas para comparar)
     wh_horario = {
         "valakas", "core", "orfen", "antharas", "baium", "zaken", 
         "frintezza", "fafurion", "fafureon", "queen ant", "freya", 
         "zariche", "asedio", "p v p", "x 9", "foto mes"
     }
     
-    # Lista para salida_ma (Valakas, Antharas, Fafurion/Fafureon)
     wh_ma = {"valakas", "antharas", "fafurion", "fafureon"}
 
     datos_horario = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_horario]
@@ -112,7 +106,7 @@ def procesar_integracion_y_filtrado():
         "salida_horario_data": datos_horario,
         "salida_ma_data": datos_ma,
         "salida_ronda_data": todos_los_datos,
-        "salida_raid_data": tabla_raids_ordenada
+        "salida_raid_data": tabla_raids_ordenada  # Recibe exclusivamente la otra tabla ordenada
     }
 
 async def disparar_salidas(bot_instance):
@@ -123,16 +117,16 @@ async def disparar_salidas(bot_instance):
     try:
         datos_procesados = procesar_integracion_y_filtrado()
 
-        # 1. salida_horario (Solo los raids/eventos permitidos)
+        # 1. salida_horario
         await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         
-        # 2. salida_ma (Solo Valakas, Antharas y Fafureon)
+        # 2. salida_ma
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         
         # 3. salida_ronda (Todos los jefes integrados y ordenados)
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         
-        # 4. salida_raid (La segunda tabla independiente de raids)
+        # 4. salida_raid (La otra tabla independiente ordenada)
         await salida_raid.ejecutar(bot_instance, datos_procesados["salida_raid_data"])
         
         logger.info("✅ Todos los servicios de salida ejecutados y despachados con éxito.")
@@ -152,7 +146,6 @@ async def on_ready():
 async def auto_monitor_web():
     logger.info("🔍 [Automático] Rastreando la página web de los jefes...")
     try:
-        # entrada_paguina devuelve dos tablas: t1 (60+) y t2 (la otra)
         t1, t2 = entrada_paguina.obtener_datos_web()
         
         if t1 or t2:
