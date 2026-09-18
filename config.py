@@ -1,5 +1,10 @@
 import os
 
+import os
+
+# ... tus otras variables ...
+TZ = os.getenv("TZ", "America/Argentina/Buenos_Aires")
+
 # Credenciales principales y URLs
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
