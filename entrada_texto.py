@@ -1,8 +1,13 @@
-mport logging
+import logging
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
+import config
 
 logger = logging.getLogger("EntradaTexto")
+
+# Definir la zona horaria estricta de Argentina
+ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 def procesar_y_ordenar_texto(contenido_texto):
     """
@@ -10,7 +15,7 @@ def procesar_y_ordenar_texto(contenido_texto):
     - Filtra rangos de hora tomando la primera.
     - Excluye a Flame of Splendor Barakiel.
     - Renombra Balrog Devourer PVP y Execution Electrical PVP.
-    - Ordena cronológicamente.
+    - Ordena cronológicamente bajo hora argentina.
     """
     lineas = contenido_texto.strip().split('\n')
     registros = []
@@ -36,25 +41,25 @@ def procesar_y_ordenar_texto(contenido_texto):
                 continue
                 
             # 2. Renombrar Balrog Devourer PVP
-            if "balrog devourer pvp" in nombre_crudo.lower():
+            if "balrog devourer pvp" in nombre_crudo.lower() or "balrog" in nombre_crudo.lower():
                 nombre_limpio = "Balrog"
             # 3. Renombrar Execution Electrical PVP
-            elif "execution electrical pvp" in nombre_crudo.lower():
+            elif "execution electrical pvp" in nombre_crudo.lower() or "electrical" in nombre_crudo.lower() or "electric" in nombre_crudo.lower():
                 nombre_limpio = "Electrica"
             else:
                 nombre_limpio = nombre_crudo
 
             tiempo_str = f"{fecha_str} {hora_str}"
             
-            # Convertir a datetime para orden exacto
+            # Convertir a datetime con zona horaria argentina para orden exacto
             try:
                 partes_fecha = fecha_str.split('/')
                 if len(partes_fecha[2]) == 2:
-                    dt = datetime.strptime(tiempo_str, "%d/%m/%y %H:%M")
+                    dt = datetime.strptime(tiempo_str, "%d/%m/%y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
                 else:
-                    dt = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M")
+                    dt = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
             except ValueError:
-                dt = datetime.max  # Si hay error, se manda al final
+                dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)  # Si hay error, se manda al final
             
             registros.append({
                 "nombre": nombre_limpio,
@@ -64,16 +69,18 @@ def procesar_y_ordenar_texto(contenido_texto):
         else:
             logger.warning(f"Línea {numero_linea} no coincide con el formato esperado: '{linea}'")
 
-    # Ordenar cronológicamente (lo que sucede más pronto va arriba)
+    # Ordenar cronológicamente bajo hora argentina (lo que sucede más pronto va arriba)
     registros_ordenados = sorted(registros, key=lambda x: x["datetime"])
     
-    # Limpiar el objeto temporal datetime antes de entregar la tabla final a main
+    # Entregar la tabla limpia conservando los campos necesarios para main.py
     tabla_limpia = []
     for reg in registros_ordenados:
         tabla_limpia.append({
             "nombre": reg["nombre"],
-            "tiempo_str": reg["tiempo_str"]
+            "tiempo_str": reg["tiempo_str"],
+            "datetime": reg["datetime"],
+            "es_vivo": False  # El texto manual procesa fechas y horas directas
         })
 
-    logger.info(f"Texto procesado, filtrado y ordenado con éxito: {len(tabla_limpia)} elementos listos para main.")
+    logger.info(f"Texto procesado, filtrado y ordenado con éxito bajo hora argentina: {len(tabla_limpia)} elementos listos para main.")
     return tabla_limpia
