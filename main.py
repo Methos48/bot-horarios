@@ -7,6 +7,7 @@ from discord.ext import commands, tasks
 
 import config
 import entrada_paguina
+import entrada_texto
 # Importa tus módulos generadores cuando los vayas subiendo:
 # import generador_ronda
 # import generador_horario
@@ -19,10 +20,11 @@ logging.basicConfig(
 logger = logging.getLogger("BotMain")
 
 # --- MEMORIA EN TIEMPO REAL ---
-# Almacenaremos aquí las tablas actualizadas por el rastreador web
+# Almacenaremos aquí las tablas actualizadas por la web y por las entradas manuales de texto
 MEMORIA_JEFES = {
     "tabla_1": [],
-    "tabla_2": []
+    "tabla_2": [],
+    "horarios_manuales": []
 }
 
 # Inicializar Flask para mantener vivo el contenedor (Healthcheck / Uptime)
@@ -70,7 +72,7 @@ async def auto_monitor_web():
             # Guardamos la información directamente en la memoria central del main
             MEMORIA_JEFES["tabla_1"] = t1
             MEMORIA_JEFES["tabla_2"] = t2
-            logger.info(f"💾 Memoria actualizada: Tabla 1 ({len(t1)} jefes) | Tabla 2 ({len(t2)} jefes)")
+            logger.info(f"💾 Memoria actualizada (Web): Tabla 1 ({len(t1)} jefes) | Tabla 2 ({len(t2)} jefes)")
             
             # Aquí más adelante evaluaremos si hubo cambios para disparar las salidas (ej: generar imágenes)
             
@@ -93,14 +95,21 @@ async def on_message(message):
         logger.info(f"📥 Bloque de texto detectado en el canal de carga (ID: {message.channel.id})")
         
         try:
-            # Aquí procesaremos el texto manual que envíes al canal
-            # ... tu lógica de procesamiento en memoria ...
+            # 1. Procesamos y filtramos el texto usando el módulo entrada_texto
+            horarios_ordenados = entrada_texto.procesar_y_ordenar_texto(message.content)
             
-            # Limpiar el mensaje original del usuario para mantener el orden
+            if horarios_ordenados:
+                # 2. Guardamos la data limpia en la memoria central del main
+                MEMORIA_JEFES["horarios_manuales"] = horarios_ordenados
+                logger.info(f"💾 Memoria actualizada (Texto Manual): {len(horarios_ordenados)} registros cargados.")
+                
+                # Aquí más adelante llamaremos al generador de imágenes de horario correspondiente
+            
+            # 3. Limpiar el mensaje original del usuario para mantener el orden
             await message.delete()
             logger.info("🗑️ Texto original eliminado limpiamente del canal.")
         except Exception as e:
-            logger.error(f"Error procesando la entrada manual: {e}")
+            logger.error(f"Error procesando la entrada de texto manual: {e}")
 
     await bot.process_commands(message)
 
