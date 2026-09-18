@@ -6,8 +6,8 @@ import discord
 from discord.ext import commands, tasks
 
 import config
-# Importa tus módulos generadores/procesadores cuando los subas:
-# import entrada_paguina
+import entrada_paguina
+# Importa tus módulos generadores cuando los vayas subiendo:
 # import generador_ronda
 # import generador_horario
 
@@ -17,6 +17,13 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("BotMain")
+
+# --- MEMORIA EN TIEMPO REAL ---
+# Almacenaremos aquí las tablas actualizadas por el rastreador web
+MEMORIA_JEFES = {
+    "tabla_1": [],
+    "tabla_2": []
+}
 
 # Inicializar Flask para mantener vivo el contenedor (Healthcheck / Uptime)
 app = Flask('')
@@ -45,27 +52,35 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
-    logger.info(f"Usando el archivo Excel local: {config.EXCEL_LOCAL}")
+    logger.info("Sistema operando completamente en memoria (sin archivos Excel).")
     
-    # Iniciar tareas automáticas si ya están creadas en tus módulos
+    # Iniciar la tarea automática de rastreo web
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
 
-# Tarea automática en segundo plano (ejemplo cada 60 segundos)
+# Tarea automática en segundo plano (cada 60 segundos)
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
-    logger.info("🔍 [Automático] Revisando la página web de los jefes...")
+    logger.info("🔍 [Automático] Rastreando la página web de los jefes...")
     try:
-        # Aquí llamarías a la función de rastreo web de entrada_paguina.py
-        # cambios_detectados = entrada_paguina.verificar_cambios()
-        pass
+        # Llamamos a la entrada web para obtener las dos tablas ordenadas
+        t1, t2 = entrada_paguina.obtener_datos_web()
+        
+        if t1 or t2:
+            # Guardamos la información directamente en la memoria central del main
+            MEMORIA_JEFES["tabla_1"] = t1
+            MEMORIA_JEFES["tabla_2"] = t2
+            logger.info(f"💾 Memoria actualizada: Tabla 1 ({len(t1)} jefes) | Tabla 2 ({len(t2)} jefes)")
+            
+            # Aquí más adelante evaluaremos si hubo cambios para disparar las salidas (ej: generar imágenes)
+            
     except Exception as e:
         logger.error(f"Error en el monitoreo web automático: {e}")
 
 @auto_monitor_web.before_loop
 async def before_auto_monitor():
     await bot.wait_until_ready()
-    logger.info("⏳ Esperando a que el sistema esté listo para arrancar la revisión de la web...")
+    logger.info("⏳ Esperando a que el sistema esté listo para arrancar el rastreo web...")
 
 # Escucha de mensajes en el canal de carga de horarios
 @bot.event
@@ -73,25 +88,24 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Validar si el mensaje proviene del canal de carga configurado
+    # Validar si el mensaje proviene del canal de carga configurado en config.py
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
         logger.info(f"📥 Bloque de texto detectado en el canal de carga (ID: {message.channel.id})")
         
         try:
-            # Procesar datos del mensaje, actualizar Excel y generar imagen
-            # ... tu lógica de procesamiento aquí ...
+            # Aquí procesaremos el texto manual que envíes al canal
+            # ... tu lógica de procesamiento en memoria ...
             
-            # Limpiar el mensaje original del usuario para mantener orden
+            # Limpiar el mensaje original del usuario para mantener el orden
             await message.delete()
             logger.info("🗑️ Texto original eliminado limpiamente del canal.")
         except Exception as e:
-        #   logger.error(f"Error procesando la entrada manual: {e}")
-            pass
+            logger.error(f"Error procesando la entrada manual: {e}")
 
     await bot.process_commands(message)
 
 if __name__ == "__main__":
-    # Arrancar el servidor web de respaldo
+    # Arrancar el servidor web de respaldo para Railway
     keep_alive()
     
     # Arrancar el bot de Discord utilizando el token de configuración
