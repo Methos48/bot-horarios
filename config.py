@@ -20,6 +20,24 @@ RONDA_CHANNEL_ID = _get_int_env("RONDA")
 CARGAR_HORARIO_CHANNEL_ID = _get_int_env("CARGAR_HORARIO")
 HORARIO_CHANNEL_ID = _get_int_env("HORARIO")
 
-# Rutas de archivos locales
-EXCEL_LOCAL = "RAID.xlsm"
-EXCEL_PROCESO = "RAID_PROCESO.xlsm"
+# --- RUTAS DE RECURSOS (Imágenes, Fuentes y Plantillas) ---
+DIR_IMAGENES = "imagen"
+DIR_FUENTES = os.path.join(DIR_IMAGENES, "fuentes")
+DIR_RAID = os.path.join(DIR_IMAGENES, "raid")
+DIR_TABLAS = os.path.join(DIR_IMAGENES, "tablas")
+
+# Archivos de Fuentes
+FUENTE_APTOS = os.path.join(DIR_FUENTES, "Aptos Narrow.ttf")
+FUENTE_BIOME = os.path.join(DIR_FUENTES, "Biome.ttf")
+
+# Plantillas y Tablas principales (.png)
+PLANTILLA_RONDA = os.path.join(DIR_TABLAS, "ronda.png")
+PLANTILLA_HORARIO = os.path.join(DIR_TABLAS, "horario.png")
+PLANTILLA_HORARIO2 = os.path.join(DIR_TABLAS, "horario2.png")
+PLANTILLA_MA = os.path.join(DIR_TABLAS, "ma.png")
+
+# Elementos gráficos adicionales de tablas (.webp)
+TABLA_BLOODED = os.path.join(DIR_TABLAS, "Blooded.webp")
+TABLA_FLOATING = os.path.join(DIR_TABLAS, "Floating.webp")
+TABLA_PORTAL = os.path.join(DIR_TABLAS, "Portal.webp")
+TABLA_SCROLL = os.path.join(DIR_TABLAS, "Scroll.webp")
