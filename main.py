@@ -9,9 +9,12 @@ import config
 import entrada_paguina
 import entrada_texto
 import entrada_imagen
-# Importa tus módulos generadores cuando los vayas subiendo:
-# import generador_ronda
-# import generador_horario
+
+# --- MÓDULOS DE SALIDA ---
+import salida_horario
+import salida_ma
+import salida_ronda
+import salida_raid
 
 # Configuración de logs limpia
 logging.basicConfig(
@@ -21,7 +24,6 @@ logging.basicConfig(
 logger = logging.getLogger("BotMain")
 
 # --- MEMORIA EN TIEMPO REAL ---
-# Almacenaremos aquí las tablas actualizadas por la web y por las entradas manuales
 MEMORIA_JEFES = {
     "tabla_1": [],
     "tabla_2": [],
@@ -52,6 +54,28 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+async def disparar_salidas(bot_instance):
+    """
+    Función centralizada para enviar la memoria actualizada a los 4 servicios de salida.
+    """
+    logger.info("🚀 Enviando datos actualizados a los servicios de salida...")
+    try:
+        # 1. salida_horario
+        await salida_horario.ejecutar(bot_instance, MEMORIA_JEFES)
+        
+        # 2. salida_ma
+        await salida_ma.ejecutar(bot_instance, MEMORIA_JEFES)
+        
+        # 3. salida_ronda
+        await salida_ronda.ejecutar(bot_instance, MEMORIA_JEFES)
+        
+        # 4. salida_raid
+        await salida_raid.ejecutar(bot_instance, MEMORIA_JEFES)
+        
+        logger.info("✅ Todos los servicios de salida ejecutados correctamente.")
+    except Exception as e:
+        logger.error(f"Error al enviar datos a los servicios de salida: {e}")
+
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
@@ -75,7 +99,8 @@ async def auto_monitor_web():
             MEMORIA_JEFES["tabla_2"] = t2
             logger.info(f"💾 Memoria actualizada (Web): Tabla 1 ({len(t1)} jefes) | Tabla 2 ({len(t2)} jefes)")
             
-            # Aquí más adelante evaluaremos si hubo cambios para disparar las salidas (ej: generar imágenes)
+            # Enviar datos actualizados a los 4 servicios de salida
+            await disparar_salidas(bot)
             
     except Exception as e:
         logger.error(f"Error en el monitoreo web automático: {e}")
@@ -117,7 +142,8 @@ async def on_message(message):
                 MEMORIA_JEFES["horarios_manuales"] = horarios_procesados
                 logger.info(f"💾 Memoria actualizada (Entrada Manual): {len(horarios_procesados)} registros cargados.")
                 
-                # Aquí más adelante llamaremos al generador de imágenes correspondiente
+                # Enviar datos actualizados a los 4 servicios de salida
+                await disparar_salidas(bot)
 
             # 3. Limpiar el mensaje original del usuario para mantener el canal impecable
             await message.delete()
