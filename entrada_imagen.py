@@ -1,10 +1,14 @@
 import logging
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import google.generativeai as genai
 import config
 
 logger = logging.getLogger("EntradaImagen")
+
+# Definir la zona horaria estricta de Argentina
+ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # Configurar la API de Gemini con la credencial de config.py
 if config.GEMINI_API_KEY:
@@ -13,7 +17,8 @@ if config.GEMINI_API_KEY:
 def procesar_imagen_jefes(imagen_bytes):
     """
     Recibe los bytes de la imagen de Discord, usa Gemini para extraer los datos,
-    aplica filtros, prioriza a los vivos ('Alive') al inicio y ordena el resto cronológicamente.
+    aplica filtros, prioriza a los vivos ('Alive') al inicio y ordena el resto cronológicamente
+    bajo hora argentina.
     """
     if not config.GEMINI_API_KEY:
         logger.error("No se encontró GEMINI_API_KEY en config.py para procesar la imagen.")
@@ -39,7 +44,7 @@ def procesar_imagen_jefes(imagen_bytes):
         ])
         
         texto_extraido = response.text
-        logger.info("✨ Texto extraído de la imagen con éxito. Procesando, filtrando y ordenando...")
+        logger.info("✨ Texto extraído de la imagen con éxito. Procesando, filtrando y ordenando (Hora Argentina)...")
         
         return _limpiar_y_ordenar_datos_imagen(texto_extraido)
 
@@ -52,13 +57,14 @@ def _limpiar_y_ordenar_datos_imagen(texto_crudo):
     Procesa el texto extraído:
     - Filtra y limpia nombres (Elimina Barakiel, cambia Balrog y Electrica).
     - Detecta si está 'Alive' para darle prioridad máxima (arriba de todo).
-    - Procesa rangos horarios tomando estrictamente la primera hora.
+    - Procesa rangos horarios tomando estrictamente la primera hora con zona horaria de Argentina.
     - Ordena cronológicamente los que tienen fecha/hora.
     """
     lineas = texto_crudo.strip().split('\n')
     registros = []
     
-    año_actual = datetime.now().year
+    # Obtener el año actual referenciado en hora argentina
+    año_actual = datetime.now(ZONA_ARGENTINA).year
 
     for linea in lineas:
         linea = linea.strip()
@@ -108,12 +114,13 @@ def _limpiar_y_ordenar_datos_imagen(texto_crudo):
             fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
             tiempo_str = f"{fecha_str} {hora_str}"
             try:
-                dt = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M")
+                # Parsear y asignar de inmediato la zona horaria de Argentina
+                dt = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
             except ValueError:
-                dt = datetime.max
+                dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
         else:
             # Si no tiene fecha (ej: formato "Entre 18:30 y 19 hs" sin día específico)
-            dt = datetime.max
+            dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
             tiempo_str = resto if resto else "-"
 
         registros.append({
@@ -131,6 +138,6 @@ def _limpiar_y_ordenar_datos_imagen(texto_crudo):
         key=lambda x: (not x["es_vivo"], x["datetime"])
     )
     
-    tabla_limpia = [{"nombre": r["nombre"], "tiempo_str": r["tiempo_str"]} for r in registros_ordenados]
-    logger.info(f"Imagen procesada, priorizada y ordenada con éxito: {len(tabla_limpia)} registros.")
+    tabla_limpia = [{"nombre": r["nombre"], "tiempo_str": r["tiempo_str"], "datetime": r["datetime"], "es_vivo": r["es_vivo"]} for r in registros_ordenados]
+    logger.info(f"Imagen procesada, priorizada y ordenada con éxito bajo hora argentina: {len(tabla_limpia)} registros.")
     return tabla_limpia
