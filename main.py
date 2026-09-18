@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 import config
 import entrada_paguina
 import entrada_texto
+import entrada_imagen
 # Importa tus módulos generadores cuando los vayas subiendo:
 # import generador_ronda
 # import generador_horario
@@ -20,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger("BotMain")
 
 # --- MEMORIA EN TIEMPO REAL ---
-# Almacenaremos aquí las tablas actualizadas por la web y por las entradas manuales de texto
+# Almacenaremos aquí las tablas actualizadas por la web y por las entradas manuales
 MEMORIA_JEFES = {
     "tabla_1": [],
     "tabla_2": [],
@@ -84,7 +85,7 @@ async def before_auto_monitor():
     await bot.wait_until_ready()
     logger.info("⏳ Esperando a que el sistema esté listo para arrancar el rastreo web...")
 
-# Escucha de mensajes en el canal de carga de horarios
+# Escucha de mensajes en el canal de carga de horarios (Texto o Imágenes)
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -92,24 +93,38 @@ async def on_message(message):
 
     # Validar si el mensaje proviene del canal de carga configurado en config.py
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
-        logger.info(f"📥 Bloque de texto detectado en el canal de carga (ID: {message.channel.id})")
-        
         try:
-            # 1. Procesamos y filtramos el texto usando el módulo entrada_texto
-            horarios_ordenados = entrada_texto.procesar_y_ordenar_texto(message.content)
-            
-            if horarios_ordenados:
-                # 2. Guardamos la data limpia en la memoria central del main
-                MEMORIA_JEFES["horarios_manuales"] = horarios_ordenados
-                logger.info(f"💾 Memoria actualizada (Texto Manual): {len(horarios_ordenados)} registros cargados.")
+            horarios_procesados = []
+
+            # 1. CASO IMAGEN: Si el usuario adjuntó una imagen
+            if message.attachments:
+                for attachment in message.attachments:
+                    if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
+                        logger.info(f"🖼️ Imagen detectada en el canal de carga: {attachment.filename}")
+                        imagen_bytes = await attachment.read()
+                        # Procesamos con entrada_imagen (Gemini + filtros + orden de vivos)
+                        horarios_procesados = entrada_imagen.procesar_imagen_jefes(imagen_bytes)
+                        break
+
+            # 2. CASO TEXTO: Si el usuario envió un bloque de texto plano
+            elif message.content:
+                logger.info("📥 Bloque de texto detectado en el canal de carga.")
+                # Procesamos con entrada_texto (filtros + ordenamiento)
+                horarios_procesados = entrada_texto.procesar_y_ordenar_texto(message.content)
+
+            # Si obtuvimos resultados válidos, actualizamos la memoria
+            if horarios_procesados:
+                MEMORIA_JEFES["horarios_manuales"] = horarios_procesados
+                logger.info(f"💾 Memoria actualizada (Entrada Manual): {len(horarios_procesados)} registros cargados.")
                 
-                # Aquí más adelante llamaremos al generador de imágenes de horario correspondiente
-            
-            # 3. Limpiar el mensaje original del usuario para mantener el orden
+                # Aquí más adelante llamaremos al generador de imágenes correspondiente
+
+            # 3. Limpiar el mensaje original del usuario para mantener el canal impecable
             await message.delete()
-            logger.info("🗑️ Texto original eliminado limpiamente del canal.")
+            logger.info("🗑️ Mensaje original eliminado limpiamente del canal.")
+
         except Exception as e:
-            logger.error(f"Error procesando la entrada de texto manual: {e}")
+            logger.error(f"Error procesando la entrada manual en el canal de carga: {e}")
 
     await bot.process_commands(message)
 
