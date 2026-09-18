@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Flask
 import discord
 from discord.ext import commands, tasks
@@ -24,10 +25,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("BotMain")
 
+# Definir la zona horaria estricta de Argentina (tomando config.TZ o por defecto)
+ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+
 # --- MEMORIA EN TIEMPO REAL ---
 MEMORIA_JEFES = {
     "tabla_60_plus": [],  # Tabla 1 (60+) integrada con manuales
-    "tabla_raids": [],    # Tabla 2 (la otra lista, independiente)
+    "tabla_raids": [],    # Tabla 2 (la otra lista, independiente / 60-)
     "horarios_manuales": []
 }
 
@@ -36,7 +40,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "¡El bot de horarios está activo y operando con éxito!"
+    return "¡El bot de horarios está activo y operando con éxito (Hora Argentina)!"
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
@@ -57,7 +61,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def ordenar_y_priorizar(lista_jefes):
     """
-    Ordena una lista de diccionarios de jefes:
+    Ordena una lista de diccionarios de jefes considerando hora de Argentina:
     1. Primero los que están 'Alive' o 'Vivo'.
     2. Luego cronológicamente por fecha/hora (lo más cercano arriba).
     """
@@ -67,13 +71,24 @@ def ordenar_y_priorizar(lista_jefes):
     def clave_orden(item):
         tiempo = str(item.get("tiempo_str", "")).lower()
         es_vivo = "alive" in tiempo or "vivo" in tiempo
-        return (0 if es_vivo else 1, item.get("datetime", datetime.max))
+        
+        dt = item.get("datetime")
+        if dt is None:
+            dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
+        elif dt.tzinfo is None:
+            # Si viene sin zona horaria, asumimos que es hora argentina
+            dt = dt.replace(tzinfo=ZONA_ARGENTINA)
+        else:
+            # Asegurar conversión a zona horaria argentina para comparar correctamente
+            dt = dt.astimezone(ZONA_ARGENTINA)
+
+        return (0 if es_vivo else 1, dt)
 
     return sorted(lista_jefes, key=clave_orden)
 
 def procesar_integracion_y_filtrado():
     """
-    Integra la lista 60+ con los manuales, ordena ambas tablas,
+    Integra la lista 60+ con los manuales, ordena ambas tablas con criterio argentino,
     y aplica los filtros específicos para cada salida.
     """
     # 1. Integrar tabla 60+ con manuales (si los hay)
@@ -106,14 +121,14 @@ def procesar_integracion_y_filtrado():
         "salida_horario_data": datos_horario,
         "salida_ma_data": datos_ma,
         "salida_ronda_data": todos_los_datos,
-        "salida_raid_data": tabla_raids_ordenada  # Recibe exclusivamente la otra tabla ordenada
+        "salida_raid_data": tabla_raids_ordenada  # Recibe exclusivamente la otra tabla (60-) ordenada
     }
 
 async def disparar_salidas(bot_instance):
     """
     Envía los datos procesados y filtrados a los 4 servicios de salida.
     """
-    logger.info("🚀 Procesando y enviando datos filtrados a los servicios de salida...")
+    logger.info("🚀 Procesando y enviando datos filtrados (Hora Argentina) a los servicios de salida...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
 
@@ -126,17 +141,19 @@ async def disparar_salidas(bot_instance):
         # 3. salida_ronda (Todos los jefes integrados y ordenados)
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         
-        # 4. salida_raid (La otra tabla independiente ordenada)
+        # 4. salida_raid (La otra tabla independiente ordenada - 60-)
         await salida_raid.ejecutar(bot_instance, datos_procesados["salida_raid_data"])
         
-        logger.info("✅ Todos los servicios de salida ejecutados y despachados con éxito.")
+        logger.info("✅ Todos los servicios de salida ejecutados y despachados con éxito bajo horario argentino.")
     except Exception as e:
         logger.error(f"Error al despachar los servicios de salida: {e}")
 
 @bot.event
 async def on_ready():
+    hora_actual_arg = datetime.now(ZONA_ARGENTINA).strftime('%Y-%m-%d %H:%M:%S')
     logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
-    logger.info("Sistema operando completamente en memoria (sin archivos Excel).")
+    logger.info(f"⏰ Hora actual del sistema (Argentina): {hora_actual_arg}")
+    logger.info("Sistema operando completamente en memoria bajo zona horaria de Argentina.")
     
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
