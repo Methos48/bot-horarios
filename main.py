@@ -17,6 +17,7 @@ import salida_horario
 import salida_ma
 import salida_ronda
 import salida_raid
+import salida_low
 
 # Configuración de logs limpia
 logging.basicConfig(
@@ -96,7 +97,7 @@ def procesar_integracion_y_filtrado():
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
     tabla_60_integrada = tabla_60_base + manuales
     
-    # Ordenar ambas tablas principales (la otra tabla de raids NUNCA se integra con nada, solo se ordena)
+    # Ordenar ambas tablas principales
     tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
     tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
 
@@ -121,12 +122,13 @@ def procesar_integracion_y_filtrado():
         "salida_horario_data": datos_horario,
         "salida_ma_data": datos_ma,
         "salida_ronda_data": todos_los_datos,
-        "salida_raid_data": tabla_raids_ordenada  # Recibe exclusivamente la otra tabla (60-) ordenada
+        "salida_raid_data": tabla_60_ordenada,     # Envía la lista de todos los raid 60+
+        "salida_low_data": tabla_raids_ordenada     # Envía la lista de todos los raid 60-
     }
 
 async def disparar_salidas(bot_instance):
     """
-    Envía los datos procesados y filtrados a los 4 servicios de salida.
+    Envía los datos procesados y filtrados a los servicios de salida.
     """
     logger.info("🚀 Procesando y enviando datos filtrados (Hora Argentina) a los servicios de salida...")
     try:
@@ -141,8 +143,11 @@ async def disparar_salidas(bot_instance):
         # 3. salida_ronda (Todos los jefes integrados y ordenados)
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         
-        # 4. salida_raid (La otra tabla independiente ordenada - 60-)
+        # 4. salida_raid (Recibe la tabla ordenada de 60+)
         await salida_raid.ejecutar(bot_instance, datos_procesados["salida_raid_data"])
+
+        # 5. salida_low (Recibe la tabla ordenada de 60-)
+        await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
         
         logger.info("✅ Todos los servicios de salida ejecutados y despachados con éxito bajo horario argentino.")
     except Exception as e:
