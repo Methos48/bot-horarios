@@ -150,15 +150,32 @@ def obtener_catalogo_imagenes_raid():
     return catalogo
 
 
-def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO):
+def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
     """
-    Busca la imagen del raid exclusivamente dentro de la subcarpeta 'raid' del tema activo.
+    Busca la imagen del raid en la subcarpeta correspondiente según el filtro:
+    - 'antes' -> {tema}/raid/antes/{nombre}{ext}
+    - 'salio' -> {tema}/raid/salio/{nombre}{ext}
+    - 'principal' (o por defecto) -> {tema}/raid/{nombre}{ext}
     """
+    subcarpeta_filtro = ""
+    if tipo_filtro == "antes":
+        subcarpeta_filtro = "antes/"
+    elif tipo_filtro == "salio":
+        subcarpeta_filtro = "salio/"
+
     for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-        clave_intento = f"{tema}/raid/{nombre_base_raid}{ext}"
+        # Intenta buscar en la subcarpeta específica del filtro
+        clave_intento = f"{tema}/raid/{subcarpeta_filtro}{nombre_base_raid}{ext}"
         if clave_intento in catalogo:
             return catalogo[clave_intento]
             
+    # Si no la encuentra en la subcarpeta específica, busca en la raíz del tema como respaldo
+    if subcarpeta_filtro != "":
+        for ext in ['.png', '.jpg', '.webp', '.jpeg']:
+            clave_respaldo = f"{tema}/raid/{nombre_base_raid}{ext}"
+            if clave_respaldo in catalogo:
+                return catalogo[clave_respaldo]
+
     return None
 
 
@@ -278,10 +295,11 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             nombre_imagen_base = jefe.get("nombre_imagen_base")
             texto_hora = jefe.get("tiempo_str_final", "21:30")
             
-            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO)
+            # Buscar imagen pasando el tipo de filtro actual para que elija la subcarpeta correcta
+            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
             
             if not ruta_imagen:
-                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}'")
+                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro})")
                 continue
                 
             img = Image.open(ruta_imagen).convert("RGBA")
