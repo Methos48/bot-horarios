@@ -11,7 +11,7 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL
+# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL rojo, morado, navidad
 # ==========================================
 TEMA_ACTIVO = "rojo"
 
