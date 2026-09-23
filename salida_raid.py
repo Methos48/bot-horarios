@@ -39,7 +39,7 @@ FILTRO_PUBLICAR_RAIDS = {
     "Frintezza": "no",
     "Freya": "no",
     "Zariche": "no",
-    "Decarbia": "si",
+    "Decarbia": "no",
     "Hekaton": "no",
     "Queen shyeed": "no",
     "Golkonda": "no",
@@ -51,9 +51,9 @@ FILTRO_PUBLICAR_RAIDS = {
 
 # 2. Segundo filtro ("antes" - se evaluará con margen de 10 min previos)
 FILTRO_PUBLICAR_RAIDS_ANTES = {
-    "Valakas": "si",
-    "Antharas": "si",
-    "Fafureon": "si",
+    "Valakas": "no",
+    "Antharas": "no",
+    "Fafureon": "no",
     "Balrog": "no",
     "Electrical": "no",
     "Baium": "no",
@@ -64,7 +64,7 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
     "Frintezza": "no",
     "Freya": "no",
     "Zariche": "no",
-    "Decarbia": "si",
+    "Decarbia": "no",
     "Hekaton": "no",
     "Queen shyeed": "no",
     "Golkonda": "no",
@@ -76,9 +76,9 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
 
 # 3. Tercer filtro ("salio" - se evaluará cuando la hora ya llegó o pasó)
 FILTRO_PUBLICAR_RAIDS_SALIO = {
-    "Valakas": "si",
-    "Antharas": "si",
-    "Fafureon": "si",
+    "Valakas": "no",
+    "Antharas": "no",
+    "Fafureon": "no",
     "Balrog": "no",
     "Electrical": "no",
     "Baium": "no",
@@ -89,7 +89,7 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
     "Frintezza": "no",
     "Freya": "no",
     "Zariche": "no",
-    "Decarbia": "si",
+    "Decarbia": "no",
     "Hekaton": "no",
     "Queen shyeed": "no",
     "Golkonda": "no",
