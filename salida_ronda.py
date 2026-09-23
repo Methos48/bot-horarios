@@ -1,141 +1,202 @@
+import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 import discord
 import config
 
-logger = logging.getLogger("SalidaRonda")
+logger = logging.getLogger("SalidaRaid")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
-def _hex_a_rgb(hex_str):
-    """Convierte un color hexadecimal (#RRGGBB) a una tupla RGB para PIL."""
-    hex_str = hex_str.lstrip('#')
-    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+# ==========================================
+# CONFIGURACIÓN DE TEMA / ESTILO VISUAL
+# ==========================================
+# Cambia esta variable libremente para usar los archivos de otra carpeta
+# (Ej: "morado", "rojo", "navidad", etc.) dentro de imagen/raid/
+TEMA_ACTIVO = "rojo"
 
-def _es_jefe_especial(nombre):
+# ==========================================
+# POSICIÓN MANUAL DE LA HORA (Coordenadas X e Y)
+# ==========================================
+# Si dejas POS_X en None, se centrará automáticamente de forma horizontal.
+# Si dejas POS_Y en None, se ubicará automáticamente abajo (alto_img - 145).
+# Puedes colocar un número exacto de píxeles (ej: POS_X = 250, POS_Y = 1150) para moverlo libremente.
+POS_X = 20
+POS_Y = 565
+
+# ==========================================
+# FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
+# ==========================================
+# 1. Filtro original / predeterminado
+FILTRO_PUBLICAR_RAIDS = {
+    "Valakas": "si",
+    "Antharas": "si",
+    "Fafureon": "si",
+    "Balrog": "no",
+    "Electrical": "no",
+    "Baium": "no",
+    "Zaken": "no",
+    "Core": "no",
+    "Orfen": "no",
+    "Queen Ant": "no",
+    "Frintezza": "no",
+    "Freya": "no",
+    "Zariche": "no",
+    "Decarbia": "si",
+    "Hekaton": "no",
+    "Queen shyeed": "no",
+    "Golkonda": "no",
+    "Galaxia": "no",
+    "Barakiel": "no",
+    
+    # Reglas generales para el resto de los raids
+    "otros_60_mas": "no",  # "si" o "no" para los raids de nivel 60+
+    "otros_60_menos": "no" # "si" o "no" para los raids de nivel 60-
+}
+
+# 2. Segundo filtro ("antes")
+FILTRO_PUBLICAR_RAIDS_ANTES = {
+    "Valakas": "si",
+    "Antharas": "si",
+    "Fafureon": "si",
+    "Balrog": "no",
+    "Electrical": "no",
+    "Baium": "no",
+    "Zaken": "no",
+    "Core": "no",
+    "Orfen": "no",
+    "Queen Ant": "no",
+    "Frintezza": "no",
+    "Freya": "no",
+    "Zariche": "no",
+    "Decarbia": "si",
+    "Hekaton": "no",
+    "Queen shyeed": "no",
+    "Golkonda": "no",
+    "Galaxia": "no",
+    "Barakiel": "no",
+    
+    # Reglas generales para el resto de los raids
+    "otros_60_mas": "no",
+    "otros_60_menos": "no"
+}
+
+# 3. Tercer filtro ("salio")
+FILTRO_PUBLICAR_RAIDS_SALIO = {
+    "Valakas": "si",
+    "Antharas": "si",
+    "Fafureon": "si",
+    "Balrog": "no",
+    "Electrical": "no",
+    "Baium": "no",
+    "Zaken": "no",
+    "Core": "no",
+    "Orfen": "no",
+    "Queen Ant": "no",
+    "Frintezza": "no",
+    "Freya": "no",
+    "Zariche": "no",
+    "Decarbia": "si",
+    "Hekaton": "no",
+    "Queen shyeed": "no",
+    "Golkonda": "no",
+    "Galaxia": "no",
+    "Barakiel": "no",
+    
+    # Reglas generales para el resto de los raids
+    "otros_60_mas": "no",
+    "otros_60_menos": "no"
+}
+
+
+def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
     """
-    Verifica si el jefe requiere la resta de 30 minutos (Valakas, Antharas, Fafurion).
+    Evalúa de forma independiente si un raid debe publicarse según el diccionario de filtros especificado.
     """
-    if not nombre:
+    if not nombre_jefe:
         return False
-    n_lower = nombre.lower().strip()
-    return n_lower in ["valakas", "antharas", "fafurion", "fafureon"]
-
-def _es_epico_o_superior(nombre):
-    """
-    Define cuáles jefes son los únicos que pueden pasar a estado VIVO automáticamente 
-    cuando llega su hora (los de la parte superior / épicos / especiales).
-    """
-    if not nombre:
-        return False
-    n_lower = nombre.lower().strip()
+        
+    nombre_limpio = nombre_jefe.strip()
+    filtro = filtro_usado if filtro_usado is not None else FILTRO_PUBLICAR_RAIDS
     
-    # Lista de jefes épicos y categorías especiales permitidas para el comportamiento superior
-    especiales_superiores = [
-        "core", "orfen", "queen ant", "zaken", "baium", "frintezza", 
-        "freya", "zariche", "balrog", "electrical", "execution", 
-        "valakas", "antharas", "fafurion", "fafureon", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
-    return any(esp in n_lower for esp in especiales_superiores)
+    for raid_clave, estado in filtro.items():
+        if raid_clave.lower() in ["otros_60_mas", "otros_60_menos"]:
+            continue
+        if raid_clave.lower() == nombre_limpio.lower():
+            return estado.lower() == "si"
+            
+    if nivel_jefe is not None:
+        try:
+            if int(nivel_jefe) >= 60:
+                return filtro.get("otros_60_mas", "si").lower() == "si"
+            else:
+                return filtro.get("otros_60_menos", "si").lower() == "si"
+        except ValueError:
+            pass
+            
+    return True
 
-def _filtrar_y_clasificar(jefe):
+
+def obtener_catalogo_imagenes_raid():
     """
-    Filtra la lista según los criterios requeridos:
-    - Solo nivel 60+ o categorías especiales y épicos.
+    Escanea recursivamente el directorio base 'imagen/raid' y todas las subcarpetas 
+    para registrar todas las imágenes disponibles.
     """
-    nombre = jefe.get("nombre", "").strip()
-    n_lower = nombre.lower()
+    directorio_base = getattr(config, "DIR_RAID", "imagen/raid")
+    catalogo = {}
     
-    if "orfen's handmaiden" in n_lower or "orfens handmaiden" in n_lower:
-        return False
-    
-    nivel_raw = jefe.get("nivel", 0)
-    nivel = 0
-    try:
-        if isinstance(nivel_raw, (int, float)):
-            nivel = int(nivel_raw)
-        elif isinstance(nivel_raw, str):
-            solo_nums = "".join(filter(str.isdigit, nivel_raw))
-            nivel = int(solo_nums) if solo_nums else 0
-    except Exception:
-        nivel = 0
-    
-    especiales_permitidos = [
-        "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", 
-        "core", "orfen", "queen ant", "zaken", "baium", "frintezza", 
-        "freya", "zariche", "balrog", "electrical", "execution", 
-        "valakas", "antharas", "fafurion", "fafureon"
-    ]
-    
-    es_especial = any(esp in n_lower for esp in especiales_permitidos)
-    
-    if nivel >= 60 or es_especial:
-        return True
-    return False
+    if not os.path.exists(directorio_base):
+        logger.warning(f"⚠️ El directorio de raids '{directorio_base}' no existe o no es accesible.")
+        return catalogo
 
-def _obtener_color_hora(nombre, es_vivo):
+    for root, dirs, files in os.walk(directorio_base):
+        for archivo in files:
+            if archivo.lower().endswith(('.png', '.webp', '.jpg', '.jpeg')):
+                ruta_completa = os.path.join(root, archivo)
+                clave_relativa = os.path.relpath(ruta_completa, directorio_base).replace("\\", "/")
+                catalogo[clave_relativa] = ruta_completa
+                
+    return catalogo
+
+
+def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO):
     """
-    Define el color específico para la hora o estado de forma exacta.
+    Busca la imagen del raid exclusivamente dentro de la subcarpeta 'raid' del tema activo.
     """
-    n_lower = nombre.lower().strip()
+    for ext in ['.png', '.jpg', '.webp', '.jpeg']:
+        clave_intento = f"{tema}/raid/{nombre_base_raid}{ext}"
+        if clave_intento in catalogo:
+            return catalogo[clave_intento]
+            
+    return None
 
-    if es_vivo:
-        return _hex_a_rgb("#40A309")
 
-    rojos_exactos = ["valakas", "antharas", "fafurion", "fafureon"]
-    if n_lower in rojos_exactos:
-        return _hex_a_rgb("#FF0000")
-
-    azules_exactos = [
-        "core", "orfen", "balrog", "electrical", "execution", "baium", "zaken",  
-        "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
-    if n_lower in azules_exactos:
-        return _hex_a_rgb("#4D93D9")
-
-    return _hex_a_rgb("#40A309")
-
-def _obtener_color_fila_entera(nombre):
+async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
     """
-    Determina si la línea entera debe pintarse de un color específico usando coincidencia exacta.
+    Función principal:
+    - Recibe todas las listas de jefes globales.
+    - Filtra por sí mismo qué jefes deben imprimirse según sus reglas internas (según el tipo de filtro solicitado).
+    - Evita duplicados, procesa imágenes y las envía a Discord.
     """
-    if not nombre:
-        return False, None
+    if tipo_filtro == "antes":
+        filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
+        nombre_filtro_log = "antes"
+    elif tipo_filtro == "salio":
+        filtro_activo = FILTRO_PUBLICAR_RAIDS_SALIO
+        nombre_filtro_log = "salio"
+    else:
+        filtro_activo = FILTRO_PUBLICAR_RAIDS
+        nombre_filtro_log = "principal"
+
+    logger.info(f"⚙️ Ejecutando salida_raid [Filtro: {nombre_filtro_log}] (Tema activo: {TEMA_ACTIVO}). Analizando datos globales...")
     
-    n_lower = nombre.lower().strip()
-
-    rojos_exactos = ["valakas", "antharas", "fafurion", "fafureon"]
-    if n_lower in rojos_exactos:
-        return True, _hex_a_rgb("#FF0000")
-
-    verdes_exactos = ["decarbia", "hekaton", "queen shyeed"]
-    if n_lower in verdes_exactos:
-        return True, _hex_a_rgb("#40A309")
-
-    azules_exactos = [
-        "balrog", "electrical", "execution", "core", "orfen", "baium", "zaken", 
-        "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
-    if n_lower in azules_exactos:
-        return True, _hex_a_rgb("#4D93D9")
-
-    return False, None
-
-async def ejecutar(bot_instance, datos_horario):
-    """
-    Función principal llamada desde main.py
-    """
-    logger.info("⚙️ Ejecutando salida_ronda: Procesando filtros y lógica condicional para épicos...")
+    canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+    fuente_bankgothic = getattr(config, "FUENTE_BANKGOTHIC", None)
     
-    canal_id = getattr(config, "RONDA_CHANNEL_ID", None)
-    ruta_plantilla = getattr(config, "PLANTILLA_RONDA", None)
-    fuente_aptos_path = getattr(config, "FUENTE_APTOS", None)
-    fuente_biome_path = getattr(config, "FUENTE_BIOME", None)
-    
-    if not canal_id or not ruta_plantilla:
-        logger.error("❌ Faltan configuraciones en config.py (RONDA_CHANNEL_ID o PLANTILLA_RONDA).")
+    if not canal_id:
+        logger.error("❌ No se encontró un canal válido configurado para ENVIAR_MENSAJE_CHANNEL_ID en config.")
         return
 
     channel = bot_instance.get_channel(canal_id)
@@ -144,170 +205,162 @@ async def ejecutar(bot_instance, datos_horario):
         return
 
     try:
-        # ==========================================
-        # 1. BORRAR EL MENSAJE ANTERIOR DEL BOT
-        # ==========================================
-        try:
-            async for mensaje in channel.history(limit=20):
-                if mensaje.author == bot_instance.user:
-                    await mensaje.delete()
-                    logger.info("🗑️ Mensaje anterior de salida_ronda eliminado con éxito.")
-                    break
-        except Exception as err_del:
-            logger.warning(f"⚠️ No se pudo eliminar el mensaje anterior en salida_ronda: {err_del}")
+        # 1. CARGAR CATÁLOGO DE IMÁGENES
+        catalogo_raids = obtener_catalogo_imagenes_raid()
+        if not catalogo_raids:
+            logger.warning("⚠️ El catálogo de imágenes de raid está vacío.")
+            return
 
-        # ==========================================
-        # 2. FILTRAR Y PROCESAR DATOS UNIFICADOS
-        # ==========================================
-        datos_filtrados = [j for j in datos_horario if _filtrar_y_clasificar(j)]
+        # 2. FILTRAR Y LIMPIAR LA INFORMACIÓN RECIBIDA
         datos_procesados = []
+        nombres_procesados = set() # Para evitar duplicados si un jefe aparece en varias listas
 
-        ahora_actual = datetime.now(ZONA_ARGENTINA)
-
-        for jefe in datos_filtrados:
+        for jefe in datos_horario:
+            nombre_jefe = jefe.get("nombre", jefe.get("nombre_imagen", ""))
+            nivel_jefe = jefe.get("nivel", None)
+            
+            # Evaluación propia del módulo para decidir si se publica
+            if not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
+                continue
+                
+            # Limpieza robusta de nombre clave para evitar duplicados y buscar imagen
+            nombre_crudo = nombre_jefe.strip()
+            nombre_imagen_base = "".join(c for c in nombre_crudo if c.isalnum()).lower()
+            
+            if not nombre_imagen_base or nombre_imagen_base in nombres_procesados:
+                continue
+            nombres_procesados.add(nombre_imagen_base)
+                
             registro = jefe.copy()
-            nombre = registro.get("nombre", "")
             estado = registro.get("estado", "").upper()
             tiempo_str = registro.get("tiempo_str", "-")
             
-            es_vivo_fuente = (estado in ["VIVO", "ALIVE"] or registro.get("es_vivo", False))
+            es_vivo = (estado == "VIVO" or estado == "ALIVE" or registro.get("es_vivo", False))
             
-            dt_obj = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
-            if tiempo_str and tiempo_str != "-":
+            if es_vivo:
+                registro["tiempo_str_final"] = "VIVO"
+            elif tiempo_str and tiempo_str != "-":
                 try:
                     dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                    if _es_jefe_especial(nombre):
-                        dt_obj = dt_obj - timedelta(minutes=30)
-                except ValueError:
-                    pass
-
-            # APLICAR CAMBIO A VIVO SOLO SI ES UN JEFE ÉPICO/ESPECIAL Y SU HORA YA LLEGÓ/PASÓ (O LA FUENTE LO DICE)
-            es_epico = _es_epico_o_superior(nombre)
-            
-            if es_vivo_fuente or (es_epico and dt_obj != datetime.max.replace(tzinfo=ZONA_ARGENTINA) and dt_obj <= ahora_actual):
-                registro["es_vivo"] = True
-                registro["tiempo_str_final"] = "VIVO"
-                registro["datetime"] = datetime.min.replace(tzinfo=ZONA_ARGENTINA)
-            else:
-                registro["es_vivo"] = False
-                registro["datetime"] = dt_obj
-                if dt_obj != datetime.max.replace(tzinfo=ZONA_ARGENTINA):
                     registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                else:
+                except ValueError:
                     registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
-
+            else:
+                registro["tiempo_str_final"] = "-"
+                
+            registro["nombre_imagen_base"] = nombre_imagen_base
             datos_procesados.append(registro)
 
-        # ==========================================
-        # 3. ORDENAR: Vivos primero, luego por proximidad cronológica
-        # ==========================================
-        datos_ordenados = sorted(
-            datos_procesados,
-            key=lambda x: (
-                not x.get("es_vivo", False),
-                x.get("datetime", datetime.max.replace(tzinfo=ZONA_ARGENTINA))
-            )
-        )
+        if not datos_procesados:
+            logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo permitido por sus filtros actuales para imprimir.")
+            return
 
-        # ==========================================
-        # 4. CARGAR PLANTILLA Y FUENTES
-        # ==========================================
-        canvas = Image.open(ruta_plantilla).convert("RGBA")
-        draw = ImageDraw.Draw(canvas)
-
+        # 3. CARGA DE FUENTE BANKGOTHIC (Tamaño aumentado a 150)
         try:
-            fuente_texto = ImageFont.truetype(fuente_aptos_path, 15) if fuente_aptos_path else ImageFont.load_default()
-        except Exception:
-            fuente_texto = ImageFont.load_default()
+            font_hora = ImageFont.truetype(fuente_bankgothic, 150) if fuente_bankgothic else ImageFont.load_default()
+        except Exception as font_err:
+            logger.warning(f"⚠️ No se pudo cargar BankGothic, usando predeterminada: {font_err}")
+            font_hora = ImageFont.load_default()
 
-        try:
-            fuente_texto_grande = ImageFont.truetype(fuente_aptos_path, 17) if fuente_aptos_path else ImageFont.load_default()
-        except Exception:
-            fuente_texto_grande = ImageFont.load_default()
-
-        try:
-            fuente_hora = ImageFont.truetype(fuente_biome_path, 15) if fuente_biome_path else ImageFont.load_default()
-        except Exception:
-            fuente_hora = ImageFont.load_default()
-
-        try:
-            fuente_hora_grande = ImageFont.truetype(fuente_biome_path, 17) if fuente_biome_path else ImageFont.load_default()
-        except Exception:
-            fuente_hora_grande = ImageFont.load_default()
-
-        color_negro = _hex_a_rgb("#000000")
-
-        # ==========================================
-        # 5. CONFIGURACIÓN DE COORDENADAS (DOS COLUMNAS)
-        # ==========================================
-        x_nombre_izq, x_lvl_izq, x_hora_izq = 16, 220, 265
-        x_nombre_der, x_lvl_der, x_hora_der = 340, 540, 590
-        y_inicial = 110
-        espaciado_renglon = 24
-
-        # ==========================================
-        # 6. DIBUJAR DATOS EN LA IMAGEN (MÁX 22 POR LADO)
-        # ==========================================
-        for index, jefe in enumerate(datos_ordenados):
-            nombre = jefe.get("nombre", "Desconocido")
-            nivel = str(jefe.get("nivel", ""))
-            tiempo_mostrar = jefe.get("tiempo_str_final", "-")
-            es_vivo = jefe.get("es_vivo", False)
-
-            if index < 22:
-                columna = "izq"
-                y_cursor = y_inicial + (index * espaciado_renglon)
-            elif index < 44:
-                columna = "der"
-                y_cursor = y_inicial + ((index - 22) * espaciado_renglon)
-            else:
-                break
-
-            if columna == "izq":
-                x_n, x_l, x_h = x_nombre_izq, x_lvl_izq, x_hora_izq
-            else:
-                x_n, x_l, x_h = x_nombre_der, x_lvl_der, x_hora_der
-
-            y_centro = y_cursor + (espaciado_renglon // 2)
-
-            debe_pintar_fondo, color_fondo_especial = _obtener_color_fila_entera(nombre)
-
-            if debe_pintar_fondo:
-                rect_box = [x_n - 4, y_centro - 10, x_h + 50, y_centro + 10]
-                draw.rectangle(rect_box, fill=color_fondo_especial)
-                color_texto_fila = _hex_a_rgb("#FFFFFF")
-                color_hora = _hex_a_rgb("#FFFFFF")
-                font_t = fuente_texto_grande
-                font_h = fuente_hora_grande
+        # 4. PROCESAMIENTO DE IMAGEN, ESTAMPADO Y ENVÍO A DISCORD
+        for jefe in datos_procesados:
+            nombre_imagen_base = jefe.get("nombre_imagen_base")
+            texto_hora = jefe.get("tiempo_str_final", "21:30")
+            
+            # Buscar la ruta de la imagen usando el tema activo y su subcarpeta raid
+            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO)
+            
+            if not ruta_imagen:
+                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}'")
+                continue
                 
-                draw.text((x_n, y_centro), nombre, fill=color_texto_fila, font=font_t, anchor="lm")
-                draw.text((x_n + 1, y_centro), nombre, fill=color_texto_fila, font=font_t, anchor="lm")
+            # Abrir la plantilla con Pillow
+            img = Image.open(ruta_imagen).convert("RGBA")
+            ancho_img, alto_img = img.size
+            
+            draw_temp = ImageDraw.Draw(img)
+            bbox = draw_temp.textbbox((0, 0), texto_hora, font=font_hora)
+            ancho_texto = bbox[2] - bbox[0]
+            
+            # Coordenadas X e Y (manuales si se definen, automáticas si son None)
+            x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
+            y = POS_Y if POS_Y is not None else (alto_img - 145)
+            
+            # =========================================================
+            # EFECTO METÁLICO CON BORDE Y RESPLANDOR ROJO INTENSO
+            # =========================================================
+            
+            # 1. Capa para el resplandor (glow) y borde rojo exterior más grueso
+            capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw_resplandor = ImageDraw.Draw(capa_resplandor)
+            
+            # Dibujar trazo grueso rojo brillante para simular el neón/resplandor
+            draw_resplandor.text(
+                (x, y), 
+                texto_hora, 
+                font=font_hora, 
+                fill=(0, 0, 0, 0),
+                stroke_width=6, 
+                stroke_fill=(255, 30, 30, 220)  # Rojo vivo e intenso
+            )
+            # Aplicar desenfoque para crear el efecto luminoso alrededor
+            capa_resplandor = capa_resplandor.filter(ImageFilter.GaussianBlur(radius=3))
 
-                draw.text((x_l, y_centro), nivel, fill=color_texto_fila, font=font_t, anchor="lm")
-                draw.text((x_l + 1, y_centro), nivel, fill=color_texto_fila, font=font_t, anchor="lm")
-
-                draw.text((x_h, y_centro), tiempo_mostrar, fill=color_hora, font=font_h, anchor="lm")
-                draw.text((x_h + 1, y_centro), tiempo_mostrar, fill=color_hora, font=font_h, anchor="lm")
+            # 2. Capa de sombra y definición del borde principal
+            capa_texto = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw_capa = ImageDraw.Draw(capa_texto)
+            
+            desplazamiento_sombra = 4
+            draw_capa.text(
+                (x + desplazamiento_sombra, y + desplazamiento_sombra), 
+                texto_hora, 
+                font=font_hora, 
+                fill=(0, 0, 0, 200)
+            )
+            
+            # Borde interno más marcado y grueso (stroke_width=4)
+            draw_capa.text(
+                (x, y), 
+                texto_hora, 
+                font=font_hora, 
+                fill=(255, 255, 255, 255), 
+                stroke_width=4, 
+                stroke_fill=(230, 0, 38, 255)  # Rojo carmesí profundo y sólido
+            )
+            
+            # 3. Cargar la textura metálica desde config y ajustarla al tamaño de la imagen
+            ruta_textura_metal = getattr(config, "TEXTURA_METAL", None)
+            if ruta_textura_metal and os.path.exists(ruta_textura_metal):
+                textura_metal = Image.open(ruta_textura_metal).convert("RGBA")
+                textura_metal = textura_metal.resize((ancho_img, alto_img), Image.Resampling.LANCZOS)
             else:
-                color_texto_fila = color_negro
-                color_hora = _obtener_color_hora(nombre, es_vivo)
-                font_t = fuente_texto
-                font_h = fuente_hora
+                textura_metal = Image.new("RGBA", (ancho_img, alto_img), (140, 145, 150, 255))
+            
+            # 4. Máscara del texto interior puro (para rellenar con la textura metálica)
+            capa_interior_pura = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw_interior_pura = ImageDraw.Draw(capa_interior_pura)
+            draw_interior_pura.text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255))
+            
+            textura_recortada = Image.composite(textura_metal, Image.new("RGBA", img.size, (0, 0, 0, 0)), capa_interior_pura)
+            
+            # 5. Combinar capas sobre la imagen original en orden (Resplandor -> Sombra/Borde -> Textura metálica)
+            img.alpha_composite(capa_resplandor)
+            img.alpha_composite(capa_texto)
+            img.alpha_composite(textura_recortada)
+            
+            # Guardar temporalmente la imagen procesada
+            ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
+            img.convert("RGB").save(ruta_temporal, "PNG")
+            
+            # Envío de la imagen resultante a Discord
+            archivo_discord = discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png")
+            await channel.send(file=archivo_discord)
+            
+            # Limpiar archivo temporal del disco
+            if os.path.exists(ruta_temporal):
+                os.remove(ruta_temporal)
 
-                draw.text((x_n, y_centro), nombre, fill=color_texto_fila, font=font_t, anchor="lm")
-                draw.text((x_l, y_centro), nivel, fill=color_texto_fila, font=font_t, anchor="lm")
-                draw.text((x_h, y_centro), tiempo_mostrar, fill=color_hora, font=font_h, anchor="lm")
-
-        # ==========================================
-        # 7. GUARDAR Y ENVIAR A DISCORD
-        # ==========================================
-        nombre_archivo_salida = "ronda_horario_final.png"
-        canvas.save(nombre_archivo_salida)
-
-        archivo_discord = discord.File(nombre_archivo_salida, filename="horario_ronda.png")
-        await channel.send(file=archivo_discord)
-        
-        logger.info("✅ Imagen de salida_ronda generada correctamente respetando la exclusividad de épicos.")
+        logger.info(f"✅ salida_raid [{nombre_filtro_log}] procesó y envió {len(datos_procesados)} imágenes correctamente.")
 
     except Exception as e:
-        logger.error(f"❌ Error crítico al ejecutar salida_ronda: {e}")
+        logger.error(f"❌ Error crítico al ejecutar salida_raid [{nombre_filtro_log}]: {e}")
