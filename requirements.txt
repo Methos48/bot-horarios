@@ -1,0 +1,8 @@
+discord.py
+flask
+Pillow
+beautifulsoup4
+requests
+openpyxl
+pandas
+google-genai
