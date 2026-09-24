@@ -26,13 +26,13 @@ def _es_jefe_especial(nombre):
 def _es_epico_o_superior(nombre):
     """
     Define cuáles jefes son los únicos que pueden pasar a estado VIVO automáticamente 
-    cuando llega su hora (los de la parte superior / épicos / especiales).
+    cuando llega su hora, aplicando la excepción estricta para los épicos permitidos.
     """
     if not nombre:
         return False
     n_lower = nombre.lower().strip()
     
-    # Lista de jefes épicos y categorías especiales permitidas para el comportamiento superior
+    # Excepciones permitidas y jefes especiales superiores
     especiales_superiores = [
         "core", "orfen", "queen ant", "zaken", "baium", "frintezza", 
         "freya", "zariche", "balrog", "electrical", "execution", 
@@ -42,14 +42,25 @@ def _es_epico_o_superior(nombre):
 
 def _filtrar_y_clasificar(jefe):
     """
-    Filtra la lista según los criterios requeridos:
-    - Solo nivel 60+ o categorías especiales y épicos.
+    Filtra la lista estrictamente:
+    - Solo nivel 60+ 
+    - O las excepciones permitidas: Zaken, Core, Orfen y Queen Ant (más los dragones/eventos especiales necesarios).
     """
     nombre = jefe.get("nombre", "").strip()
     n_lower = nombre.lower()
     
     if "orfen's handmaiden" in n_lower or "orfens handmaiden" in n_lower:
         return False
+    
+    # Excepciones estrictas solicitadas y especiales permitidas
+    excepciones_permitidas = [
+        "zaken", "core", "orfen", "queen ant",
+        "valakas", "antharas", "fafurion", "fafureon",
+        "baium", "frintezza", "freya", "zariche", "balrog", 
+        "electrical", "execution", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
+    ]
+    
+    es_excepcion = any(exc in n_lower for exc in excepciones_permitidas)
     
     nivel_raw = jefe.get("nivel", 0)
     nivel = 0
@@ -62,16 +73,8 @@ def _filtrar_y_clasificar(jefe):
     except Exception:
         nivel = 0
     
-    especiales_permitidos = [
-        "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", 
-        "core", "orfen", "queen ant", "zaken", "baium", "frintezza", 
-        "freya", "zariche", "balrog", "electrical", "execution", 
-        "valakas", "antharas", "fafurion", "fafureon"
-    ]
-    
-    es_especial = any(esp in n_lower for esp in especiales_permitidos)
-    
-    if nivel >= 60 or es_especial:
+    # Condición final: O es nivel 60 o más, o entra en las excepciones permitidas
+    if nivel >= 60 or es_excepcion:
         return True
     return False
 
