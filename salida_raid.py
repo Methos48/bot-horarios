@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
@@ -176,7 +177,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     return None
 
 
-async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
+async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="principal"):
     global ULTIMO_DIA_LIMPIEZA
 
     ahora_actual = datetime.now(ZONA_ARGENTINA)
@@ -198,7 +199,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "principal"
 
-    logger.info(f"⚙️ Ejecutando salida_raid [Filtro: {nombre_filtro_log}] (Tema activo: {TEMA_ACTIVO}). Analizando datos globales...")
+    logger.info(f"⚙️ Ejecutando salida_raid [Filtro: {nombre_filtro_log}] (Tema activo: {TEMA_ACTIVO}). Leyendo JSON...")
     
     canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     fuente_bankgothic = getattr(config, "FUENTE_BANKGOTHIC", None)
@@ -210,6 +211,25 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
     channel = bot_instance.get_channel(canal_id)
     if not channel:
         logger.warning(f"⚠️ No se pudo encontrar el canal de Discord con ID: {canal_id}")
+        return
+
+    # ==========================================
+    # LECTURA Y COMBINACIÓN DEL ARCHIVO JSON DEL BOT
+    # ==========================================
+    if not os.path.exists(ruta_json):
+        logger.error(f"❌ No se encontró el archivo JSON en la ruta: {ruta_json}")
+        return
+
+    try:
+        with open(ruta_json, "r", encoding="utf-8") as f:
+            contenido_json = json.load(f)
+            
+        vivo_o_muerto = contenido_json.get("vivo_o_muerto", [])
+        raid_60_plus = contenido_json.get("raid_60_plus", [])
+        datos_horario = vivo_o_muerto + raid_60_plus
+        
+    except Exception as e:
+        logger.error(f"❌ Error al leer o parsear el archivo JSON en salida_raid: {e}")
         return
 
     try:
@@ -328,11 +348,9 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = True
                 else:
                     if dt_obj and not es_vivo:
-                        # RESTRICCIÓN ESTRICTA: Solo raids entre las 18:00 y las 23:59
                         if 18 <= dt_obj.hour <= 23:
                             fecha_raid_dia = dt_obj.date()
                             
-                            # Validamos que la ejecución ocurra dentro de la ventana entre las 13:50 y las 14:50
                             t_actual = ahora_actual.time()
                             if datetime.strptime("13:50", "%H:%M").time() <= t_actual <= datetime.strptime("14:50", "%H:%M").time():
                                 clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
@@ -375,7 +393,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             img = Image.open(ruta_imagen).convert("RGBA")
             ancho_img, alto_img = img.size
 
-            # PROTECCIÓN ABSOLUTA: Si el filtro es "antes" o "salio", guardamos y enviamos la imagen limpia DIRECTAMENTE
             if tipo_filtro in ["antes", "salio"]:
                 ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
                 img.convert("RGB").save(ruta_temporal, "PNG")
@@ -387,7 +404,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                     os.remove(ruta_temporal)
                 continue
 
-            # Para el filtro principal: Validamos si el texto es "VIVO" para NO estampar horas numéricas encima
             texto_hora = jefe.get("tiempo_str_final", "")
             
             if texto_hora != "VIVO" and texto_hora != "-":
@@ -398,7 +414,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
                 y = POS_Y if POS_Y is not None else (alto_img - 145)
                 
-                # Capa resplandor
                 capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 draw_resplandor = ImageDraw.Draw(capa_resplandor)
                 draw_resplandor.text(
@@ -407,7 +422,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 )
                 capa_resplandor = capa_resplandor.filter(ImageFilter.GaussianBlur(radius=3))
 
-                # Capa texto principal y sombra
                 capa_texto = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 draw_capa = ImageDraw.Draw(capa_texto)
                 desplazamiento_sombra = 4
@@ -417,7 +431,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                     stroke_width=4, stroke_fill=(230, 0, 38, 255)
                 )
                 
-                # Textura metálica
                 ruta_textura_metal = getattr(config, "TEXTURA_METAL", None)
                 if ruta_textura_metal and os.path.exists(ruta_textura_metal):
                     textura_metal = Image.open(ruta_textura_metal).convert("RGBA")
