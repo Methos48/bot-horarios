@@ -33,7 +33,7 @@ def _es_epico_o_superior(nombre):
     n_lower = nombre.lower().strip()
     
     # Excepciones estrictas permitidas para activar VIVO automáticamente
-    excepciones_exactas = ["core", "orfen", "queen ant", "zaken", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    excepciones_exactas = ["core", "orfen", "queen ant", "zaken", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"]
     return any(exc in n_lower for exc in excepciones_exactas) or any(esp in n_lower for esp in ["valakas", "antharas", "fafurion", "fafureon", "baium", "frintezza", "freya", "zariche"])
 
 def _filtrar_y_clasificar(jefe):
@@ -51,7 +51,7 @@ def _filtrar_y_clasificar(jefe):
     # Lista estricta de excepciones permitidas (épicos y eventos sin nivel)
     excepciones_permitidas = [
         "zaken", "core", "orfen", "queen ant", 
-        "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
+        "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"
     ]
     
     es_excepcion = any(exc in n_lower for exc in excepciones_permitidas)
@@ -85,7 +85,7 @@ def _obtener_color_hora(nombre, es_vivo):
     if n_lower in rojos_exactos:
         return _hex_a_rgb("#FF0000")
 
-    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"]
     if any(azul in n_lower for azul in azules_exactos):
         return _hex_a_rgb("#4D93D9")
 
@@ -108,7 +108,7 @@ def _obtener_color_fila_entera(nombre):
     if n_lower in verdes_exactos:
         return True, _hex_a_rgb("#40A309")
 
-    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"]
     if any(azul in n_lower for azul in azules_exactos):
         return True, _hex_a_rgb("#4D93D9")
 
