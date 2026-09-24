@@ -155,28 +155,39 @@ def aplicar_offset_web(lista_jefes, offset_horas):
         dt = item_copia.get("datetime")
         tiempo_str = item_copia.get("tiempo_str", "").strip()
         
-        # 1. Si existe un datetime válido, aplicamos el offset (suma o resta)
+        # Si el jefe está vivo o sin hora, se respeta tal cual
+        if tiempo_str.upper() in ["VIVO", "ALIVE", "-"]:
+            lista_modificada.append(item_copia)
+            continue
+
+        dt_ajustado = None
+
+        # 1. Ajustar el datetime existente si es válido
         if dt and isinstance(dt, datetime) and (1900 < dt.year < 9999):
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZONA_ARGENTINA)
             dt_ajustado = dt + timedelta(hours=offset_horas)
-            item_copia["datetime"] = dt_ajustado
-            if tiempo_str and tiempo_str.upper() not in ["VIVO", "ALIVE", "-"]:
-                item_copia["tiempo_str"] = dt_ajustado.strftime("%d/%m/%Y %H:%M")
         
-        # 2. Si viene como texto plano de hora
-        elif tiempo_str and tiempo_str.upper() not in ["VIVO", "ALIVE", "-"]:
+        # 2. Si no hay datetime pero hay texto de hora/fecha, parsearlo y ajustarlo
+        elif tiempo_str:
             try:
                 if ":" in tiempo_str and len(tiempo_str) <= 5:
                     partes = tiempo_str.split(":")
-                    dt_base = datetime.now().replace(hour=int(partes[0]), minute=int(partes[1]), second=0, microsecond=0)
+                    dt_base = datetime.now(ZONA_ARGENTINA).replace(hour=int(partes[0]), minute=int(partes[1]), second=0, microsecond=0)
                     dt_ajustado = dt_base + timedelta(hours=offset_horas)
-                    item_copia["tiempo_str"] = dt_ajustado.strftime("%H:%M")
                 else:
                     dt_parsed = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M")
-                    dt_ajustado = dt_parsed + timedelta(hours=offset_horas)
-                    item_copia["datetime"] = dt_ajustado.replace(tzinfo=ZONA_ARGENTINA)
-                    item_copia["tiempo_str"] = dt_ajustado.strftime("%d/%m/%Y %H:%M")
+                    dt_ajustado = dt_parsed.replace(tzinfo=ZONA_ARGENTINA) + timedelta(hours=offset_horas)
             except Exception as e:
-                logger.warning(f"No se pudo aplicar offset al texto '{tiempo_str}': {e}")
+                logger.warning(f"No se pudo parsear el tiempo_str '{tiempo_str}' para aplicar offset: {e}")
+
+        # 3. Consolidar los cambios en el item copiado
+        if dt_ajustado:
+            item_copia["datetime"] = dt_ajustado
+            if len(tiempo_str) <= 5 and ":" in tiempo_str:
+                item_copia["tiempo_str"] = dt_ajustado.strftime("%H:%M")
+            else:
+                item_copia["tiempo_str"] = dt_ajustado.strftime("%d/%m/%Y %H:%M")
 
         lista_modificada.append(item_copia)
     return lista_modificada
@@ -187,17 +198,17 @@ def listas_han_cambiado(lista_vieja, lista_nueva):
         return True
     dict_viejo = {j.get("nombre", "").lower(): j for j in lista_vieja}
     dict_nuevo = {j.get("nombre", "").lower(): j for j in lista_nueva}
-    
+     
     if set(dict_viejo.keys()) != set(dict_nuevo.keys()):
         return True
-        
+         
     for nombre, nuevo_item in dict_nuevo.items():
         viejo_item = dict_viejo[nombre]
         if (viejo_item.get("estado") != nuevo_item.get("estado") or
             viejo_item.get("tiempo_str") != nuevo_item.get("tiempo_str") or
             viejo_item.get("nivel") != nuevo_item.get("nivel")):
             return True
-            
+             
     return False
 
 # --- MEMORIA EN TIEMPO REAL INICIALIZADA DESDE JSON ---
@@ -239,7 +250,7 @@ def ordenar_y_priorizar(lista_jefes):
     def clave_orden(item):
         tiempo = str(item.get("tiempo_str", "")).lower()
         es_vivo = "alive" in tiempo or "vivo" in tiempo or item.get("es_vivo", False)
-        
+         
         dt = item.get("datetime")
         if dt is None:
             dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
@@ -260,7 +271,7 @@ def procesar_integracion_y_filtrado():
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
     tabla_60_integrada = tabla_60_base + manuales
-    
+     
     tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
     tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
     tabla_epic_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_epic", []))
@@ -272,7 +283,7 @@ def procesar_integracion_y_filtrado():
         "frintezza", "fafurion", "fafureon", "queen ant", "freya",  
         "zariche", "asedio", "p v p", "x 9", "foto mes"
     }
-    
+     
     wh_ma = {"valakas", "antharas", "fafurion", "fafureon"}
 
     datos_horario = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_horario]
@@ -295,7 +306,7 @@ async def disparar_salidas_web(bot_instance):
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
-        
+         
         # Unificamos todas las listas de la memoria para dárselas por completo a salida_raid
         todos_los_jefes_unificados = (
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
@@ -304,7 +315,7 @@ async def disparar_salidas_web(bot_instance):
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        
+         
         logger.info("✅ Servicios de salida web ejecutados con éxito.")
     except Exception as e:
         logger.error(f"Error al despachar los servicios de salida web: {e}")
@@ -317,7 +328,7 @@ async def disparar_salidas_manuales(bot_instance):
         await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
-        
+         
         # Unificamos todas las listas también para las salidas manuales
         todos_los_jefes_unificados = (
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
@@ -326,7 +337,7 @@ async def disparar_salidas_manuales(bot_instance):
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        
+         
         logger.info("✅ Servicios de salida manual ejecutados con éxito.")
     except Exception as e:
         logger.error(f"Error al despachar los servicios de salida manuales: {e}")
@@ -349,31 +360,32 @@ async def auto_monitor_web():
     try:
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
         t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
-         
+          
+        # Aplicamos el offset de inmediato a la data cruda de entrada_pagina
         t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
         t2 = aplicar_offset_web(t2_crudo, HORA_OFFSET_WEB)
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
-         
+          
         if t1 or t2 or t_epic:
             vieja_t1 = MEMORIA_JEFES.get("tabla_60_plus", [])
             vieja_t2 = MEMORIA_JEFES.get("tabla_raids", [])
             vieja_t_epic = MEMORIA_JEFES.get("tabla_epic", [])
-             
+              
             cambio_t1 = listas_han_cambiado(vieja_t1, t1)
             cambio_t2 = listas_han_cambiado(vieja_t2, t2)
             cambio_t_epic = listas_han_cambiado(vieja_t_epic, t_epic)
-             
+              
             if cambio_t1 or cambio_t2 or cambio_t_epic:
                 MEMORIA_JEFES["tabla_60_plus"] = t1
                 MEMORIA_JEFES["tabla_raids"] = t2
                 MEMORIA_JEFES["tabla_epic"] = t_epic
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria y JSON actualizados por cambios (Web con offset {HORA_OFFSET_WEB}h): Tabla 60+ ({len(t1)}) | Raids ({len(t2)}) | Epic Bosses ({len(t_epic)})")
-                 
+                  
                 await disparar_salidas_web(bot)
             else:
                 logger.info("🔍 [Automático] No se detectaron cambios en los jefes de la web.")
-         
+          
     except Exception as e:
         logger.error(f"Error en el monitoreo web automático: {e}")
 
