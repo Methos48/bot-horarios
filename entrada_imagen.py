@@ -1,473 +1,291 @@
-import os
-import json
 import logging
+import re
+import os
+import io
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
-from flask import Flask
-import discord
-from discord.ext import commands, tasks
-
+from google import genai
+from google.genai import types
 import config
-import entrada_pagina
-import entrada_texto
-import entrada_imagen
 
-# --- MÓDULOS DE SALIDA ---
-import salida_horario
-import salida_ma
-import salida_ronda
-import salida_raid
-import salida_low
+# Importaciones seguras globales para evitar NameError
+try:
+    from PIL import Image, ImageEnhance
+    PIL_DISPONIBLE = True
+except ImportError:
+    PIL_DISPONIBLE = False
 
-# Configuración de logs limpia
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-logger = logging.getLogger("BotMain")
+try:
+    import pytesseract
+    OCR_LOCAL_DISPONIBLE = True
+except ImportError:
+    OCR_LOCAL_DISPONIBLE = False
 
-# Definir la zona horaria estricta de Argentina
+logger = logging.getLogger("EntradaPagina")
+
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+client = genai.Client(api_key=getattr(config, "GEMINI_API_KEY", os.getenv("GEMINI_API_KEY")))
 
-# ==============================================================================
-# ⚙️ CONFIGURACIÓN DE OFFSET WEB (Ajuste de hora para la página web)
-# ==============================================================================
-HORA_OFFSET_WEB = 1
-
-# --- ARCHIVO DE PERSISTENCIA JSON ---
-ARCHIVO_JSON = "jefes_activos.json"
-
-# --- DICCIONARIO DE NIVELES PARA ENTRADAS MANUALES ---
-NIVELES_JEFE_MANUAL = {
-    "queen ant": 40,
-    "core": 50,
-    "orfen": 50,
-    "zaken": 60,
-    "baium": 75,
-    "frintezza": 85,
-    "freya": 85,
-    "zariche": 85,
-    "balrog": 85,
-    "electrica": 85,
-    "electrical": 85
-}
-
-# Lista blanca estricta para forzar dentro de raid_60_plus independientemente de su nivel numérico
-WH_RAID_60_PLUS_EXTRA = {
-    "asedio", "p v p", "x9", "x 9", "foto mes", 
-    "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica"
-}
-
-def asignar_nivel_manual(lista_jefes):
-    """Asigna el nivel correspondiente a cada jefe manual basándose en su nombre."""
-    for item in lista_jefes:
-        nombre_limpio = item.get("nombre", "").strip().lower()
-        for clave, nivel in NIVELES_JEFE_MANUAL.items():
-            if clave in nombre_limpio:
-                item["nivel"] = nivel
-                break
-        else:
-            if "nivel" not in item:
-                item["nivel"] = 85
-    return lista_jefes
-
-def limpiar_duplicados_por_nombre(lista_jefes):
+async def procesar_mensaje_imagenes(message):
     """
-    GARANTÍA ABSOLUTA: Agrupa por nombre en minúsculas y asegura que 
-    exista estrictamente un (1) solo registro por cada jefe.
+    Verifica si el mensaje contiene imágenes, aplica preprocesamiento visual,
+    ejecuta Gemini y aplica los respaldos correspondientes si falla.
     """
-    if not lista_jefes:
+    if not message.attachments:
         return []
-     
-    dict_unicos = {}
-    for item in lista_jefes:
-        nombre = str(item.get("nombre", "")).strip().lower()
-        if not nombre:
-            continue
-         
-        tiempo = str(item.get("tiempo_str", "")).strip()
-         
-        if nombre not in dict_unicos:
-            dict_unicos[nombre] = item
-        else:
-            tiempo_existente = str(dict_unicos[nombre].get("tiempo_str", "")).strip()
-            if tiempo_existente in ["-", "", "None"] and tiempo not in ["-", "", "None"]:
-                dict_unicos[nombre] = item
-            elif tiempo not in ["-", "", "None"]:
-                dict_unicos[nombre] = item
 
-    return list(dict_unicos.values())
+    todos_los_registros = []
+    imagenes_procesadas_con_exito = False
 
-def item_a_serializable(item):
-    item_copia = item.copy()
-    dt = item_copia.get("datetime")
-    if isinstance(dt, datetime):
-        item_copia["datetime_iso"] = dt.isoformat()
-    if "datetime" in item_copia:
-        del item_copia["datetime"]
-    return item_copia
-
-def item_desde_serializable(item):
-    item_copia = item.copy()
-    dt_iso = item_copia.pop("datetime_iso", None)
-    if dt_iso:
-        try:
-            item_copia["datetime"] = datetime.fromisoformat(dt_iso)
-        except Exception:
-            item_copia["datetime"] = None
-    else:
-        tiempo_str = item_copia.get("tiempo_str", "")
-        if tiempo_str and tiempo_str not in ["VIVO", "ALIVE"]:
+    for attachment in message.attachments:
+        ext = attachment.filename.split('.')[-1].lower()
+        if ext in ['png', 'jpg', 'jpeg', 'webp']:
+            logger.info(f"🖼️ Imagen detectada para procesamiento: {attachment.filename}")
             try:
-                item_copia["datetime"] = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-            except Exception:
-                item_copia["datetime"] = None
-        else:
-            es_v = item_copia.get("estado") in ["VIVO", "ALIVE"] or item_copia.get("es_vivo", False)
-            item_copia["datetime"] = datetime.min.replace(tzinfo=ZONA_ARGENTINA) if es_v else datetime.max.replace(tzinfo=ZONA_ARGENTINA)
-    return item_copia
-
-def cargar_memoria_desde_json():
-    if os.path.exists(ARCHIVO_JSON):
-        try:
-            with open(ARCHIVO_JSON, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                vivo_muerto = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("vivo_o_muerto", [])])
-                r60_plus = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_plus", [])])
-                r60_menos = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_menos", [])])
+                imagen_bytes_original = await attachment.read()
                 
-                if not vivo_muerto and not r60_plus and not r60_menos:
-                    t1 = [item_desde_serializable(i) for i in data.get("tabla_60_plus", [])]
-                    t2 = [item_desde_serializable(i) for i in data.get("tabla_raids", [])]
-                    t_epic = [item_desde_serializable(i) for i in data.get("tabla_epic", [])]
-                    manuales = [item_desde_serializable(i) for i in data.get("horarios_manuales", [])]
-                    
-                    r60_plus = limpiar_duplicados_por_nombre(t1 + manuales)
-                    r60_menos = limpiar_duplicados_por_nombre(t2)
-                    vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
-
-                logger.info("📂 Memoria cargada en las 3 tablas principales desde el JSON.")
-                return {
-                    "vivo_o_muerto": vivo_muerto,
-                    "raid_60_plus": r60_plus,
-                    "raid_60_menos": r60_menos
+                # 🚀 1. PREPROCESAMIENTO VISUAL
+                imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
+                
+                mime_map = {
+                    'png': 'image/png',
+                    'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg',
+                    'webp': 'image/webp'
                 }
-        except Exception as e:
-            logger.error(f"Error al cargar JSON en memoria: {e}")
-            
-    return {
-        "vivo_o_muerto": [],
-        "raid_60_plus": [],
-        "raid_60_menos": []
-    }
+                mime_type = mime_map.get(ext, 'image/png')
+                
+                registros_imagen = []
+                intentos = 0
+                max_intentos = 2
+                
+                # Bucle de reintento ante caídas 503 de Gemini
+                while intentos < max_intentos and not registros_imagen:
+                    intentos += 1
+                    try:
+                        registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
+                    except Exception as e_gemini:
+                        logger.warning(f"⚠️ Intento {intentos}: Capa 1 (Gemini) falló: {e_gemini}")
+                        await asyncio.sleep(2)
 
-def guardar_memoria_a_json_completa():
-    try:
-        data = {
-            "vivo_o_muerto": [item_a_serializable(i) for i in MEMORIA_JEFES.get("vivo_o_muerto", [])],
-            "raid_60_plus": [item_a_serializable(i) for i in MEMORIA_JEFES.get("raid_60_plus", [])],
-            "raid_60_menos": [item_a_serializable(i) for i in MEMORIA_JEFES.get("raid_60_menos", [])]
-        }
-        with open(ARCHIVO_JSON, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-        logger.info(f"💾 Archivo '{ARCHIVO_JSON}' guardado con las 3 tablas limpias.")
-    except Exception as e:
-        logger.error(f"Error al guardar memoria en JSON: {e}")
+                # --- CAPA 2: Respaldo local usando Tesseract OCR ---
+                if not registros_imagen and OCR_LOCAL_DISPONIBLE:
+                    logger.info("🔄 Activando Capa 2: OCR Local (Tesseract)...")
+                    try:
+                        registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
+                    except Exception as e_ocr:
+                        logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}")
 
-def clasificar_y_distribuir_items(lista_items):
-    r60_plus = []
-    r60_menos = []
+                # --- CAPA 3: Respaldo heurístico por Regex ---
+                if not registros_imagen and OCR_LOCAL_DISPONIBLE:
+                    logger.info("🔄 Activando Capa 3: Respaldo Heurístico por Regex...")
+                    try:
+                        texto_crudo_tesseract = pytesseract.image_to_string(Image.open(io.BytesIO(imagen_bytes)))
+                        registros_imagen = _procesar_capa_3_emergencia(texto_crudo_tesseract)
+                    except Exception as e_reg:
+                        logger.warning(f"⚠️ Capa 3 falló: {e_reg}")
 
-    for item in lista_items:
-        nombre = str(item.get("nombre", "")).strip().lower()
+                if registros_imagen:
+                    todos_los_registros.extend(registros_imagen)
+                    imagenes_procesadas_con_exito = True
+
+            except Exception as e:
+                logger.error(f"Error crítico procesando la imagen {attachment.filename}: {e}")
+
+    if imagenes_procesadas_con_exito and todos_los_registros:
         try:
-            nivel = int(item.get("nivel", 85))
-        except Exception:
-            nivel = 85
+            await message.delete()
+            logger.info("🗑️ Mensaje con imágenes eliminado limpiamente del canal.")
+        except Exception as e:
+            logger.error(f"No se pudo eliminar el mensaje: {e}")
 
-        if nombre in WH_RAID_60_PLUS_EXTRA or nivel >= 60:
-            r60_plus.append(item)
-        else:
-            r60_menos.append(item)
+    return _consolidar_y_ordenar_registros(todos_los_registros)
 
-    return limpiar_duplicados_por_nombre(r60_plus), limpiar_duplicados_por_nombre(r60_menos)
 
-def aplicar_offset_web(lista_jefes, offset_horas):
-    if offset_horas == 0 or not lista_jefes:
-        return lista_jefes
-     
-    lista_modificada = []
-    for item in lista_jefes:
-        item_copia = item.copy()
-        dt = item_copia.get("datetime")
-        tiempo_str = item_copia.get("tiempo_str", "").strip()
-         
-        if tiempo_str.upper() in ["VIVO", "ALIVE", "-"]:
-            lista_modificada.append(item_copia)
+def _preprocesar_imagen(imagen_bytes):
+    """Aplica escala de grises y alto contraste de manera segura."""
+    if not PIL_DISPONIBLE:
+        return imagen_bytes
+    try:
+        imagen = Image.open(io.BytesIO(imagen_bytes)).convert('L')
+        enhancer = ImageEnhance.Contrast(imagen)
+        imagen = enhancer.enhance(2.2)
+        
+        output_io = io.BytesIO()
+        imagen.save(output_io, format='PNG')
+        output_io.seek(0)
+        return output_io.getvalue()
+    except Exception as e:
+        logger.warning(f"⚠️ Error en preprocesamiento visual, usando original: {e}")
+        return imagen_bytes
+
+
+def _procesar_con_gemini(imagen_bytes, mime_type):
+    """Capa 1: Extracción mediante Gemini."""
+    prompt = (
+        "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
+        "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
+        "Reglas estrictas:\n"
+        "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
+        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado` (Ejemplo: Queen Ant | 16:30 o Balrog | VIVO).\n"
+        "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
+        "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
+    )
+    response = client.models.generate_content(
+        model='gemini-3.6-flash',
+        contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
+    )
+    return _parsear_texto_crudo(response.text)
+
+
+def _procesar_con_tesseract_local(imagen_bytes):
+    """Capa 2: Respaldo local usando Tesseract."""
+    imagen = Image.open(io.BytesIO(imagen_bytes))
+    config_tesseract = r'--oem 3 --psm 6'
+    texto_extraido = pytesseract.image_to_string(imagen, config=config_tesseract)
+    return _parsear_texto_crudo(texto_extraido)
+
+
+def _procesar_capa_3_emergencia(texto_crudo):
+    """Capa 3: Respaldo de emergencia por expresiones regulares."""
+    registros = []
+    zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+    lineas = texto_crudo.split('\n')
+    for linea in lineas:
+        if re.search(r'\d{1,2}:\d{2}', linea):
+            partes = re.split(r'[-–|]', linea)
+            if len(partes) >= 2:
+                nombre = partes[0].strip()
+                resto = partes[1].strip()
+                if nombre:
+                    registros.append({
+                        "nombre": nombre,
+                        "tiempo_str": resto,
+                        "estado": "PROGRAMADO",
+                        "es_vivo": False,
+                        "datetime": datetime.now(zona_actual)
+                    })
+    return registros
+
+
+def _parsear_texto_crudo(texto_crudo):
+    """Procesa, limpia y normaliza el texto."""
+    if not texto_crudo:
+        return []
+        
+    texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
+    texto_crudo = re.sub(r'```\s*', '', texto_crudo)
+    
+    lineas = texto_crudo.strip().split('\n')
+    registros = []
+    zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+    ahora_local = datetime.now(zona_actual)
+    año_actual = ahora_local.year
+
+    for linea in lineas:
+        linea = linea.strip()
+        if not linea or "|" not in linea:
+            continue
+            
+        partes = linea.split("|", 1)
+        nombre_crudo = partes[0].strip()
+        resto = partes[1].strip()
+
+        if not nombre_crudo or resto in ["-", "", "None", "---"]:
             continue
 
-        dt_ajustado = None
-        if dt and isinstance(dt, datetime) and (1900 < dt.year < 9999):
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=ZONA_ARGENTINA)
-            dt_ajustado = dt + timedelta(hours=offset_horas)
-        elif tiempo_str:
-            try:
-                if ":" in tiempo_str and len(tiempo_str) <= 5:
-                    partes = tiempo_str.split(":")
-                    dt_base = datetime.now(ZONA_ARGENTINA).replace(hour=int(partes[0]), minute=int(partes[1]), second=0, microsecond=0)
-                    dt_ajustado = dt_base + timedelta(hours=offset_horas)
-                else:
-                    dt_parsed = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M")
-                    dt_ajustado = dt_parsed.replace(tzinfo=ZONA_ARGENTINA) + timedelta(hours=offset_horas)
-            except Exception as e:
-                logger.warning(f"No se pudo parsear el tiempo_str '{tiempo_str}': {e}")
-
-        if dt_ajustado:
-            item_copia["datetime"] = dt_ajustado
-            if len(tiempo_str) <= 5 and ":" in tiempo_str:
-                item_copia["tiempo_str"] = dt_ajustado.strftime("%H:%M")
-            else:
-                item_copia["tiempo_str"] = dt_ajustado.strftime("%d/%m/%Y %H:%M")
-
-        lista_modificada.append(item_copia)
-    return limpiar_duplicados_por_nombre(lista_modificada)
-
-def listas_han_cambiado(lista_vieja, lista_nueva):
-    if len(lista_vieja) != len(lista_nueva):
-        return True
-    dict_viejo = {j.get("nombre", "").lower(): j for j in lista_vieja}
-    dict_nuevo = {j.get("nombre", "").lower(): j for j in lista_nueva}
-     
-    if set(dict_viejo.keys()) != set(dict_nuevo.keys()):
-        return True
-         
-    for nombre, nuevo_item in dict_nuevo.items():
-        viejo_item = dict_viejo[nombre]
-        if (viejo_item.get("estado") != nuevo_item.get("estado") or
-            viejo_item.get("tiempo_str") != nuevo_item.get("tiempo_str") or
-            viejo_item.get("nivel") != nuevo_item.get("nivel")):
-            return True
-    return False
-
-# --- MEMORIA EN TIEMPO REAL ---
-MEMORIA_JEFES = cargar_memoria_desde_json()
-
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "¡El bot de horarios está activo y operando con éxito (Hora Argentina)!"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    import threading
-    t = threading.Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-    logger.info("Servidor Flask web iniciado en el puerto 8080.")
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-def ordenar_y_priorizar(lista_jefes):
-    if not lista_jefes:
-        return []
-
-    def clave_orden(item):
-        tiempo = str(item.get("tiempo_str", "")).lower()
-        es_vivo = "alive" in tiempo or "vivo" in tiempo or item.get("es_vivo", False)
-         
-        dt = item.get("datetime")
-        if dt is None:
-            dt = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
-        elif dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ZONA_ARGENTINA)
+        nombre_lower = nombre_crudo.lower()
+        if "flame of splendor barakiel" in nombre_lower or "barakiel" in nombre_lower:
+            continue
+            
+        if "balrog" in nombre_lower:
+            nombre_limpio = "Balrog"
+        elif "execution electrical" in nombre_lower or "electrical" in nombre_lower:
+            nombre_limpio = "Electrical"
         else:
-            dt = dt.astimezone(ZONA_ARGENTINA)
+            nombre_limpio = nombre_crudo
 
-        return (0 if es_vivo else 1, dt)
+        es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
 
-    lista_limpia = limpiar_duplicados_por_nombre(lista_jefes)
-    return sorted(lista_limpia, key=clave_orden)
-
-# ==============================================================================
-# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS
-# ==============================================================================
-async def disparar_salidas_por_cambios(bot_instance):
-    """
-    Controlado por el ciclo web. Envía:
-    - salida_ronda: vivo_o_muerto + raid_60_plus
-    - salida_low: raid_60_menos
-    """
-    logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
-    try:
-        vivo_muerto_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
-        r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
-        r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
-
-        datos_ronda = ordenar_y_priorizar(vivo_muerto_ord + r60_plus_ord)
-
-        await salida_ronda.ejecutar(bot_instance, datos_ronda)
-        await salida_low.ejecutar(bot_instance, r60_menos_ord)
+        match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
+        match_hora = re.search(r'(\d{1,2}):(\d{2})', resto)
         
-        logger.info("✅ Salidas automáticas web ejecutadas con éxito.")
-    except Exception as e:
-        logger.error(f"Error al disparar salidas web: {e}")
+        if not match_hora:
+            match_hora_simple = re.search(r'(?:entre\s+)?(\d{1,2})', resto, re.IGNORECASE)
+            hora_str = f"{match_hora_simple.group(1).zfill(2)}:00" if match_hora_simple else "00:00"
+            tiene_tiempo = bool(match_hora_simple)
+        else:
+            hora_str = f"{match_hora.group(1).zfill(2)}:{match_hora.group(2)}"
+            tiene_tiempo = True
 
-# ==============================================================================
-# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
-# ==============================================================================
-async def disparar_salidas_manuales(bot_instance, registros_ingresados):
-    """
-    Controlado exclusivamente por entrada_texto y entrada_imagen. Envía:
-    - salida_ma: solo VALAKAS, ANTHARAS y FAFUREON de los registros ingresados.
-    - salida_horario: toda la información recibida en los registros ingresados.
-    """
-    logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
-    try:
-        # Filtrar solo Valakas, Antharas y Fafureon para salida_ma
-        wh_ma = {"valakas", "antharas", "fafureon"}
-        datos_ma = [
-            j for j in registros_ingresados 
-            if str(j.get("nombre", "")).strip().lower() in wh_ma
-        ]
+        if match_fecha:
+            dia = int(match_fecha.group(1))
+            mes = int(match_fecha.group(2))
+            fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
+            tiempo_str_estandar = f"{fecha_str} {hora_str}"
+            try:
+                dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
+            except ValueError:
+                dt = datetime.max.replace(tzinfo=zona_actual)
+        elif tiene_tiempo and not es_vivo:
+            try:
+                h, m = map(int, hora_str.split(':'))
+                dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
+                tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                dt = datetime.max.replace(tzinfo=zona_actual)
+                tiempo_str_estandar = "-"
+        else:
+            dt = datetime.max.replace(tzinfo=zona_actual)
+            tiempo_str_estandar = "-"
 
-        if datos_ma:
-            await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma))
-            logger.info("✅ salida_ma ejecutada con éxito.")
+        if tiempo_str_estandar == "-" and not es_vivo:
+            continue
 
-        if registros_ingresados:
-            await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_ingresados))
-            logger.info("✅ salida_horario ejecutada con éxito.")
+        tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
 
-    except Exception as e:
-        logger.error(f"Error al disparar salidas manuales: {e}")
+        registros.append({
+            "nombre": nombre_limpio,
+            "tiempo_str": tiempo_final_registro,
+            "estado": "VIVO" if es_vivo else "PROGRAMADO",
+            "es_vivo": es_vivo,
+            "datetime": dt
+        })
 
-@bot.event
-async def on_ready():
-    logger.info(f"¡Bot conectado como {bot.user}!")
-    if not auto_monitor_web.is_running():
-        auto_monitor_web.start()
+    return registros
 
-@tasks.loop(seconds=60)
-async def auto_monitor_web():
-    try:
-        t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
-        t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
-          
-        t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
-        t2 = aplicar_offset_web(t2_crudo, HORA_OFFSET_WEB)
-        t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
-          
-        if t1 or t2 or t_epic:
-            nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(t1 + t2)
-            nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
 
-            vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
-            vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
-            vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
-              
-            if (listas_han_cambiado(vieja_r60_plus, nuevos_r60_plus) or 
-                listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos) or 
-                listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto)):
-                
-                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-                MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
-                
-                guardar_memoria_a_json_completa()
-                await disparar_salidas_por_cambios(bot)
-    except Exception as e:
-        logger.error(f"Error en monitoreo web: {e}")
+def _consolidar_y_ordenar_registros(registros):
+    """Consolida y ordena los registros sin duplicados."""
+    unicos = {}
+    for r in registros:
+        nombre_key = r["nombre"].strip().lower()
+        if not nombre_key or r["tiempo_str"] == "-":
+            continue
+            
+        if nombre_key not in unicos:
+            unicos[nombre_key] = r
+        else:
+            actual = unicos[nombre_key]
+            if r["es_vivo"] and not actual["es_vivo"]:
+                unicos[nombre_key] = r
+            elif not actual["es_vivo"] and not r["es_vivo"] and r["datetime"] < actual["datetime"]:
+                unicos[nombre_key] = r
 
-@auto_monitor_web.before_loop
-async def before_auto_monitor():
-    await bot.wait_until_ready()
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
-        try:
-            nuevos_registros = []
-
-            if message.attachments:
-                logger.info("🖼️ Procesando imagen con entrada_imagen...")
-                nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
-            elif message.content:
-                logger.info("📥 Procesando texto con entrada_texto...")
-                nuevos_registros = entrada_texto.procesar_y_ordenar_texto(message.content)
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-
-            if nuevos_registros:
-                # 1. Asignar niveles
-                nuevos_registros = asignar_nivel_manual(nuevos_registros)
-
-                # 2. Obtener registros actuales de las tablas
-                actuales_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
-                actuales_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
-                actuales_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
-                
-                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in (actuales_vivo_muerto + actuales_r60_plus + actuales_r60_menos)}
-
-                # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
-                registros_depurados = []
-                for nuevo in nuevos_registros:
-                    nombre_nuevo = str(nuevo.get("nombre", "")).strip().lower()
-                    tiempo_nuevo = str(nuevo.get("tiempo_str", "")).strip()
-
-                    if tiempo_nuevo in ["-", "", "None"]:
-                        if nombre_nuevo in dict_actuales:
-                            tiempo_viejo = str(dict_actuales[nombre_nuevo].get("tiempo_str", "")).strip()
-                            if tiempo_viejo not in ["-", "", "None"]:
-                                logger.info(f"🛡️ Protección activada: Se ignoró el valor inválido para '{nombre_nuevo}' y se mantiene el horario existente.")
-                                continue
-                    
-                    registros_depurados.append(nuevo)
-
-                dict_combinado = dict_actuales.copy()
-                for reg in registros_depurados:
-                    nombre = str(reg.get("nombre", "")).strip().lower()
-                    if nombre:
-                        dict_combinado[nombre] = reg
-
-                # 4. Reclasificar todo el conjunto combinado en las 3 tablas
-                lista_total_actualizada = list(dict_combinado.values())
-                nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
-                nuevos_vivo_muerto = actuales_vivo_muerto
-
-                if (listas_han_cambiado(actuales_r60_plus, nuevos_r60_plus) or 
-                    listas_han_cambiado(actuales_r60_menos, nuevos_r60_menos)):
-
-                    MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
-                    MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-
-                    guardar_memoria_a_json_completa()
-                    logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
-                 
-                # Ejecutar el disparador exclusivo para entradas manuales con los registros procesados
-                await disparar_salidas_manuales(bot, nuevos_registros)
-
-        except Exception as e:
-            logger.error(f"Error procesando entrada manual: {e}")
-
-    await bot.process_commands(message)
-
-if __name__ == "__main__":
-    keep_alive()
-    if config.DISCORD_TOKEN:
-        bot.run(config.DISCORD_TOKEN)
-    else:
-        logger.critical("❌ No se encontró el DISCORD_TOKEN.")
+    lista_final = list(unicos.values())
+    registros_ordenados = sorted(
+        lista_final, 
+        key=lambda x: (not x["es_vivo"], x["datetime"].date(), x["datetime"].time())
+    )
+    
+    return [
+        {
+            "nombre": r["nombre"], 
+            "tiempo_str": r["tiempo_str"], 
+            "datetime": r["datetime"], 
+            "es_vivo": r["es_vivo"],
+            "estado": r["estado"]
+        } 
+        for r in registros_ordenados
+    ]
