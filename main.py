@@ -137,7 +137,6 @@ def cargar_memoria_desde_json():
                 r60_plus = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_plus", [])])
                 r60_menos = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_menos", [])])
                 
-                # Compatibilidad si el archivo viejo tenía las 4 tablas separadas
                 if not vivo_muerto and not r60_plus and not r60_menos:
                     t1 = [item_desde_serializable(i) for i in data.get("tabla_60_plus", [])]
                     t2 = [item_desde_serializable(i) for i in data.get("tabla_raids", [])]
@@ -298,27 +297,58 @@ def ordenar_y_priorizar(lista_jefes):
     lista_limpia = limpiar_duplicados_por_nombre(lista_jefes)
     return sorted(lista_limpia, key=clave_orden)
 
+# ==============================================================================
+# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS
+# ==============================================================================
 async def disparar_salidas_por_cambios(bot_instance):
     """
-    Dispara exclusivamente las salidas requeridas al detectar modificaciones:
-    - salida_ronda recibe: vivo_o_muerto + raid_60_plus ordenados.
-    - salida_low recibe: raid_60_menos ordenados.
+    Controlado por el ciclo web. Envía:
+    - salida_ronda: vivo_o_muerto + raid_60_plus
+    - salida_low: raid_60_menos
     """
-    logger.info("🚀 [Salidas] Detectados cambios en el JSON. Actualizando impresiones...")
+    logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
     try:
         vivo_muerto_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
         r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
         r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
 
-        # Combinación exacta para salida_ronda: vivo_o_muerto y raid_60_plus
         datos_ronda = ordenar_y_priorizar(vivo_muerto_ord + r60_plus_ord)
 
         await salida_ronda.ejecutar(bot_instance, datos_ronda)
         await salida_low.ejecutar(bot_instance, r60_menos_ord)
         
-        logger.info("✅ Salidas actualizadas e impresas con éxito.")
+        logger.info("✅ Salidas automáticas web ejecutadas con éxito.")
     except Exception as e:
-        logger.error(f"Error al disparar salidas por cambios: {e}")
+        logger.error(f"Error al disparar salidas web: {e}")
+
+# ==============================================================================
+# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
+# ==============================================================================
+async def disparar_salidas_manuales(bot_instance, registros_ingresados):
+    """
+    Controlado exclusivamente por entrada_texto y entrada_imagen. Envía:
+    - salida_ma: solo VALAKAS, ANTHARAS y FAFUREON de los registros ingresados.
+    - salida_horario: toda la información recibida en los registros ingresados.
+    """
+    logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
+    try:
+        # Filtrar solo Valakas, Antharas y Fafureon para salida_ma
+        wh_ma = {"valakas", "antharas", "fafureon"}
+        datos_ma = [
+            j for j in registros_ingresados 
+            if str(j.get("nombre", "")).strip().lower() in wh_ma
+        ]
+
+        if datos_ma:
+            await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma))
+            logger.info("✅ salida_ma ejecutada con éxito.")
+
+        if registros_ingresados:
+            await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_ingresados))
+            logger.info("✅ salida_horario ejecutada con éxito.")
+
+    except Exception as e:
+        logger.error(f"Error al disparar salidas manuales: {e}")
 
 @bot.event
 async def on_ready():
@@ -415,14 +445,9 @@ async def on_message(message):
 
                 # 4. Reclasificar todo el conjunto combinado en las 3 tablas
                 lista_total_actualizada = list(dict_combinado.values())
-                
-                # Separamos los de nivel 60+ / lista blanca de los menores
                 nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
-
-                # Mantener vivo_o_muerto existente intacto a menos que se modifique explícitamente
                 nuevos_vivo_muerto = actuales_vivo_muerto
 
-                # Comprobar si hubo cambios reales antes de guardar y disparar
                 if (listas_han_cambiado(actuales_r60_plus, nuevos_r60_plus) or 
                     listas_han_cambiado(actuales_r60_menos, nuevos_r60_menos)):
 
@@ -431,8 +456,9 @@ async def on_message(message):
 
                     guardar_memoria_a_json_completa()
                     logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
-                     
-                    await disparar_salidas_por_cambios(bot)
+                 
+                # Ejecutar el disparador exclusivo para entradas manuales con los registros procesados
+                await disparar_salidas_manuales(bot, nuevos_registros)
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
