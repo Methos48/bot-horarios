@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("BotMain")
 
-# Definir la zona horaria estricta de Argentina (tomando config.TZ o por defecto)
+# Definir la zona horaria estricta de Argentina
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==============================================================================
@@ -66,8 +66,38 @@ def asignar_nivel_manual(lista_jefes):
                 item["nivel"] = 85
     return lista_jefes
 
+def limpiar_duplicados_por_nombre(lista_jefes):
+    """
+    GARANTÍA ABSOLUTA: Agrupa por nombre en minúsculas y asegura que 
+    exista estrictamente un (1) solo registro por cada jefe.
+    Si hay duplicados, se queda con el más reciente o el último procesado.
+    """
+    if not lista_jefes:
+        return []
+    
+    dict_unicos = {}
+    for item in lista_jefes:
+        nombre = str(item.get("nombre", "")).strip().lower()
+        if not nombre:
+            continue
+        
+        # Filtramos también por seguridad los que tengan tiempo inválido o "-" si ya tenemos uno válido
+        tiempo = str(item.get("tiempo_str", "")).strip()
+        
+        if nombre not in dict_unicos:
+            dict_unicos[nombre] = item
+        else:
+            # Si ya existía, priorizamos el que tenga un tiempo válido por encima de un "-"
+            tiempo_existente = str(dict_unicos[nombre].get("tiempo_str", "")).strip()
+            if tiempo_existente in ["-", "", "None"] and tiempo not in ["-", "", "None"]:
+                dict_unicos[nombre] = item
+            elif tiempo not in ["-", "", "None"]:
+                # Si ambos son válidos, actualizamos con el nuevo
+                dict_unicos[nombre] = item
+
+    return list(dict_unicos.values())
+
 def item_a_serializable(item):
-    """Convierte objetos datetime a formato ISO para poder guardarlos en JSON."""
     item_copia = item.copy()
     dt = item_copia.get("datetime")
     if isinstance(dt, datetime):
@@ -77,7 +107,6 @@ def item_a_serializable(item):
     return item_copia
 
 def item_desde_serializable(item):
-    """Restaura los objetos datetime y la zona horaria al leer el JSON."""
     item_copia = item.copy()
     dt_iso = item_copia.pop("datetime_iso", None)
     if dt_iso:
@@ -98,16 +127,15 @@ def item_desde_serializable(item):
     return item_copia
 
 def cargar_memoria_desde_json():
-    """Carga y deserializa el estado de los jefes desde el archivo JSON."""
     if os.path.exists(ARCHIVO_JSON):
         try:
             with open(ARCHIVO_JSON, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                t1 = [item_desde_serializable(i) for i in data.get("tabla_60_plus", [])]
-                t2 = [item_desde_serializable(i) for i in data.get("tabla_raids", [])]
-                t_epic = [item_desde_serializable(i) for i in data.get("tabla_epic", [])]
-                manuales = [item_desde_serializable(i) for i in data.get("horarios_manuales", [])]
-                logger.info("📂 Memoria cargada exitosamente desde el archivo JSON.")
+                t1 = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_60_plus", [])])
+                t2 = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_raids", [])])
+                t_epic = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_epic", [])])
+                manuales = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("horarios_manuales", [])])
+                logger.info("📂 Memoria cargada y depurada de duplicados desde el JSON.")
                 return {
                     "tabla_60_plus": t1,
                     "tabla_raids": t2,
@@ -124,7 +152,6 @@ def cargar_memoria_desde_json():
     }
 
 def guardar_memoria_a_json_completa():
-    """Guarda toda la memoria actual de jefes en el archivo JSON de manera segura."""
     try:
         data = {
             "tabla_60_plus": [item_a_serializable(i) for i in MEMORIA_JEFES.get("tabla_60_plus", [])],
@@ -134,12 +161,11 @@ def guardar_memoria_a_json_completa():
         }
         with open(ARCHIVO_JSON, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        logger.info(f"💾 Archivo '{ARCHIVO_JSON}' actualizado correctamente.")
+        logger.info(f"💾 Archivo '{ARCHIVO_JSON}' guardado sin duplicados.")
     except Exception as e:
-        logger.error(f"Error al guardar memoria completa en JSON: {e}")
+        logger.error(f"Error al guardar memoria en JSON: {e}")
 
 def aplicar_offset_web(lista_jefes, offset_horas):
-    """Aplica el desplazamiento de horas configurado exclusivamente a la data web."""
     if offset_horas == 0 or not lista_jefes:
         return lista_jefes
      
@@ -168,7 +194,7 @@ def aplicar_offset_web(lista_jefes, offset_horas):
                     dt_parsed = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M")
                     dt_ajustado = dt_parsed.replace(tzinfo=ZONA_ARGENTINA) + timedelta(hours=offset_horas)
             except Exception as e:
-                logger.warning(f"No se pudo parsear el tiempo_str '{tiempo_str}' para aplicar offset: {e}")
+                logger.warning(f"No se pudo parsear el tiempo_str '{tiempo_str}': {e}")
 
         if dt_ajustado:
             item_copia["datetime"] = dt_ajustado
@@ -178,10 +204,9 @@ def aplicar_offset_web(lista_jefes, offset_horas):
                 item_copia["tiempo_str"] = dt_ajustado.strftime("%d/%m/%Y %H:%M")
 
         lista_modificada.append(item_copia)
-    return lista_modificada
+    return limpiar_duplicados_por_nombre(lista_modificada)
 
 def listas_han_cambiado(lista_vieja, lista_nueva):
-    """Compara dos listas de jefes para detectar si hubo cambios."""
     if len(lista_vieja) != len(lista_nueva):
         return True
     dict_viejo = {j.get("nombre", "").lower(): j for j in lista_vieja}
@@ -196,10 +221,9 @@ def listas_han_cambiado(lista_vieja, lista_nueva):
             viejo_item.get("tiempo_str") != nuevo_item.get("tiempo_str") or
             viejo_item.get("nivel") != nuevo_item.get("nivel")):
             return True
-             
     return False
 
-# --- MEMORIA EN TIEMPO REAL INICIALIZADA DESDE JSON ---
+# --- MEMORIA EN TIEMPO REAL ---
 MEMORIA_JEFES = cargar_memoria_desde_json()
 
 app = Flask('')
@@ -216,7 +240,7 @@ def keep_alive():
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
-    logger.info("Servidor Flask web (keep_alive) iniciado en el puerto 8080.")
+    logger.info("Servidor Flask web iniciado en el puerto 8080.")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -242,12 +266,16 @@ def ordenar_y_priorizar(lista_jefes):
 
         return (0 if es_vivo else 1, dt)
 
-    return sorted(lista_jefes, key=clave_orden)
+    # Aseguramos que antes de ordenar, no pasen duplicados
+    lista_limpia = limpiar_duplicados_por_nombre(lista_jefes)
+    return sorted(lista_limpia, key=clave_orden)
 
 def procesar_integracion_y_filtrado():
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-    tabla_60_integrada = tabla_60_base + manuales
+    
+    # Fusión limpia previniendo duplicados
+    tabla_60_integrada = limpiar_duplicados_por_nombre(tabla_60_base + manuales)
      
     tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
     tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
@@ -270,62 +298,57 @@ def procesar_integracion_y_filtrado():
         "tabla_60_plus": tabla_60_ordenada,
         "tabla_raids": tabla_raids_ordenada,
         "tabla_epic": tabla_epic_ordenada,
-        "salida_horario_data": datos_horario,
-        "salida_ma_data": datos_ma,
-        "salida_ronda_data": todos_los_datos,
-        "salida_low_data": tabla_raids_ordenada
+        "salida_horario_data": limpiar_duplicados_por_nombre(datos_horario),
+        "salida_ma_data": limpiar_duplicados_por_nombre(datos_ma),
+        "salida_ronda_data": limpiar_duplicados_por_nombre(todos_los_datos),
+        "salida_low_data": limpiar_duplicados_por_nombre(tabla_raids_ordenada)
     }
 
 async def disparar_salidas_web(bot_instance):
-    logger.info("🚀 [Web] Procesando y enviando datos a salidas web...")
+    logger.info("🚀 [Web] Procesando salidas web...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
          
-        todos_los_jefes_unificados = (
+        todos_los_jefes_unificados = limpiar_duplicados_por_nombre(
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
             MEMORIA_JEFES.get("tabla_raids", []) + 
             MEMORIA_JEFES.get("tabla_epic", []) +
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Servicios de salida web ejecutados con éxito.")
+        logger.info("✅ Salidas web ejecutadas.")
     except Exception as e:
-        logger.error(f"Error al despachar salidas web: {e}")
+        logger.error(f"Error en salidas web: {e}")
 
 async def disparar_salidas_manuales(bot_instance):
-    logger.info("🚀 [Manual] Procesando y enviando datos a salidas manuales...")
+    logger.info("🚀 [Manual] Procesando salidas manuales...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
          
-        todos_los_jefes_unificados = (
+        todos_los_jefes_unificados = limpiar_duplicados_por_nombre(
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
             MEMORIA_JEFES.get("tabla_raids", []) + 
             MEMORIA_JEFES.get("tabla_epic", []) +
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Servicios de salida manual ejecutados con éxito.")
+        logger.info("✅ Salidas manuales ejecutadas.")
     except Exception as e:
-        logger.error(f"Error al despachar salidas manuales: {e}")
+        logger.error(f"Error en salidas manuales: {e}")
 
 @bot.event
 async def on_ready():
-    hora_actual_arg = datetime.now(ZONA_ARGENTINA).strftime('%Y-%m-%d %H:%M:%S')
-    logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
-    logger.info(f"⏰ Hora actual del sistema (Argentina): {hora_actual_arg}")
-    logger.info(f"⚙️ Offset aplicado a listas web: {HORA_OFFSET_WEB} hora(s)")
-     
+    logger.info(f"¡Bot conectado como {bot.user}!")
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
 
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
-    logger.info("🔍 [Automático] Rastreando la página web de los jefes...")
     try:
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
         t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
@@ -339,21 +362,14 @@ async def auto_monitor_web():
             vieja_t2 = MEMORIA_JEFES.get("tabla_raids", [])
             vieja_t_epic = MEMORIA_JEFES.get("tabla_epic", [])
               
-            cambio_t1 = listas_han_cambiado(vieja_t1, t1)
-            cambio_t2 = listas_han_cambiado(vieja_t2, t2)
-            cambio_t_epic = listas_han_cambiado(vieja_t_epic, t_epic)
-              
-            if cambio_t1 or cambio_t2 or cambio_t_epic:
-                MEMORIA_JEFES["tabla_60_plus"] = t1
-                MEMORIA_JEFES["tabla_raids"] = t2
-                MEMORIA_JEFES["tabla_epic"] = t_epic
+            if listas_han_cambiado(vieja_t1, t1) or listas_han_cambiado(vieja_t2, t2) or listas_han_cambiado(vieja_t_epic, t_epic):
+                MEMORIA_JEFES["tabla_60_plus"] = limpiar_duplicados_por_nombre(t1)
+                MEMORIA_JEFES["tabla_raids"] = limpiar_duplicados_por_nombre(t2)
+                MEMORIA_JEFES["tabla_epic"] = limpiar_duplicados_por_nombre(t_epic)
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria y JSON actualizados por cambios web.")
                 await disparar_salidas_web(bot)
-            else:
-                logger.info("🔍 [Automático] No se detectaron cambios en la web.")
     except Exception as e:
-        logger.error(f"Error en el monitoreo web automático: {e}")
+        logger.error(f"Error en monitoreo web: {e}")
 
 @auto_monitor_web.before_loop
 async def before_auto_monitor():
@@ -369,44 +385,36 @@ async def on_message(message):
             nuevos_registros = []
 
             if message.attachments:
-                logger.info("🖼️ Adjunto(s) detectado(s). Procesando con entrada_imagen...")
+                logger.info("🖼️ Procesando imagen con entrada_imagen...")
                 nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
-                logger.info("📥 Bloque de texto detectado. Procesando con entrada_texto...")
+                logger.info("📥 Procesando texto con entrada_texto...")
                 nuevos_registros = entrada_texto.procesar_y_ordenar_texto(message.content)
                 try:
                     await message.delete()
-                    logger.info("🗑️ Mensaje de texto original eliminado limpiamente.")
-                except Exception as e:
-                    logger.error(f"No se pudo eliminar el mensaje de texto original: {e}")
+                except Exception:
+                    pass
 
             if nuevos_registros:
-                # 1. Asignar niveles correspondientes a los nuevos registros
+                # 1. Asignar niveles
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                # 2. FUSIÓN INTELIGENTE (Anti-duplicados por nombre)
-                # Obtenemos los manuales actuales en memoria
+                # 2. Obtener manuales actuales y fusionar con los nuevos
                 manuales_actuales = MEMORIA_JEFES.get("horarios_manuales", [])
                 
-                # Creamos un diccionario indexado por el nombre del jefe en minúsculas
-                dict_manuales = {j.get("nombre", "").strip().lower(): j for j in manuales_actuales}
+                # Combinamos ambas listas
+                lista_combinada = manuales_actuales + nuevos_registros
 
-                # Actualizamos o insertamos los nuevos registros sin duplicar
-                for item in nuevos_registros:
-                    nombre_clave = item.get("nombre", "").strip().lower()
-                    if nombre_clave:
-                        dict_manuales[nombre_clave] = item  # Si ya existe, se pisará con el nuevo horario actualizado; si no, se agrega
-
-                # Convertimos de nuevo a lista limpia
-                MEMORIA_JEFES["horarios_manuales"] = list(dict_manuales.values())
+                # 3. APLICAR LIMPIEZA GLOBAL DE DUPLICADOS POR NOMBRE (Garantiza 1 solo registro por jefe)
+                MEMORIA_JEFES["horarios_manuales"] = limpiar_duplicados_por_nombre(lista_combinada)
 
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria y JSON actualizados (Entradas Manuales sin duplicados). Total registros manuales: {len(MEMORIA_JEFES['horarios_manuales'])}")
+                logger.info(f"💾 Memoria actualizada sin duplicados. Total manuales únicos: {len(MEMORIA_JEFES['horarios_manuales'])}")
                  
                 await disparar_salidas_manuales(bot)
 
         except Exception as e:
-            logger.error(f"Error procesando la entrada manual: {e}")
+            logger.error(f"Error procesando entrada manual: {e}")
 
     await bot.process_commands(message)
 
@@ -415,4 +423,4 @@ if __name__ == "__main__":
     if config.DISCORD_TOKEN:
         bot.run(config.DISCORD_TOKEN)
     else:
-        logger.critical("❌ No se encontró el DISCORD_TOKEN en las variables de entorno.")
+        logger.critical("❌ No se encontró el DISCORD_TOKEN.")
