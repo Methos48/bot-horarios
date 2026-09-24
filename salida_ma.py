@@ -139,7 +139,7 @@ async def ejecutar(bot_instance, datos_horario):
         x_inicio = 760  # Inicio (Alineado con el título verde de la plantilla)
         x_fin = 890     # Fin (Movido hacia la izquierda para que no se corte)
 
-        y_cursor = 270
+        y_cursor = 240
         espaciado_renglon = 50
 
         fuente_aptos = _cargar_fuente("FUENTE_APTOS", tamano=34)
