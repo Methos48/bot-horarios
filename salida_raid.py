@@ -250,7 +250,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID (Este sí estampa la hora)
+            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID (Este valida si estampa o no la hora)
             # =========================================================================
             else:
                 if nombre_base_limpio in raids_especiales_dragones:
@@ -306,7 +306,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
             return
 
-        # 3. CARGA DE FUENTE BANKGOTHIC (Solo necesaria para el modo principal)
+        # 3. CARGA DE FUENTE BANKGOTHIC
         try:
             font_hora = ImageFont.truetype(fuente_bankgothic, 150) if fuente_bankgothic else ImageFont.load_default()
         except Exception as font_err:
@@ -343,51 +343,52 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                     os.remove(ruta_temporal)
                 continue
 
-            # Para el filtro principal, aplicamos el estampado de hora habitual
-            texto_hora = jefe.get("tiempo_str_final", "21:30")
+            # Para el filtro principal: Validamos si el texto es "VIVO" para NO estampar horas numéricas encima
+            texto_hora = jefe.get("tiempo_str_final", "")
             
-            draw_temp = ImageDraw.Draw(img)
-            bbox = draw_temp.textbbox((0, 0), texto_hora, font=font_hora)
-            ancho_texto = bbox[2] - bbox[0]
-            
-            x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
-            y = POS_Y if POS_Y is not None else (alto_img - 145)
-            
-            # Capa resplandor
-            capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            draw_resplandor = ImageDraw.Draw(capa_resplandor)
-            draw_resplandor.text(
-                (x, y), texto_hora, font=font_hora, fill=(0, 0, 0, 0),
-                stroke_width=6, stroke_fill=(255, 30, 30, 220)
-            )
-            capa_resplandor = capa_resplandor.filter(ImageFilter.GaussianBlur(radius=3))
+            if texto_hora != "VIVO" and texto_hora != "-":
+                draw_temp = ImageDraw.Draw(img)
+                bbox = draw_temp.textbbox((0, 0), texto_hora, font=font_hora)
+                ancho_texto = bbox[2] - bbox[0]
+                
+                x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
+                y = POS_Y if POS_Y is not None else (alto_img - 145)
+                
+                # Capa resplandor
+                capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw_resplandor = ImageDraw.Draw(capa_resplandor)
+                draw_resplandor.text(
+                    (x, y), texto_hora, font=font_hora, fill=(0, 0, 0, 0),
+                    stroke_width=6, stroke_fill=(255, 30, 30, 220)
+                )
+                capa_resplandor = capa_resplandor.filter(ImageFilter.GaussianBlur(radius=3))
 
-            # Capa texto principal y sombra
-            capa_texto = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            draw_capa = ImageDraw.Draw(capa_texto)
-            desplazamiento_sombra = 4
-            draw_capa.text((x + desplazamiento_sombra, y + desplazamiento_sombra), texto_hora, font=font_hora, fill=(0, 0, 0, 200))
-            draw_capa.text(
-                (x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255), 
-                stroke_width=4, stroke_fill=(230, 0, 38, 255)
-            )
-            
-            # Textura metálica
-            ruta_textura_metal = getattr(config, "TEXTURA_METAL", None)
-            if ruta_textura_metal and os.path.exists(ruta_textura_metal):
-                textura_metal = Image.open(ruta_textura_metal).convert("RGBA")
-                textura_metal = textura_metal.resize((ancho_img, alto_img), Image.Resampling.LANCZOS)
-            else:
-                textura_metal = Image.new("RGBA", (ancho_img, alto_img), (140, 145, 150, 255))
-            
-            capa_interior_pura = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            draw_interior_pura = ImageDraw.Draw(capa_interior_pura)
-            draw_interior_pura.text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255))
-            textura_recortada = Image.composite(textura_metal, Image.new("RGBA", img.size, (0, 0, 0, 0)), capa_interior_pura)
-            
-            img.alpha_composite(capa_resplandor)
-            img.alpha_composite(capa_texto)
-            img.alpha_composite(textura_recortada)
+                # Capa texto principal y sombra
+                capa_texto = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw_capa = ImageDraw.Draw(capa_texto)
+                desplazamiento_sombra = 4
+                draw_capa.text((x + desplazamiento_sombra, y + desplazamiento_sombra), texto_hora, font=font_hora, fill=(0, 0, 0, 200))
+                draw_capa.text(
+                    (x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255), 
+                    stroke_width=4, stroke_fill=(230, 0, 38, 255)
+                )
+                
+                # Textura metálica
+                ruta_textura_metal = getattr(config, "TEXTURA_METAL", None)
+                if ruta_textura_metal and os.path.exists(ruta_textura_metal):
+                    textura_metal = Image.open(ruta_textura_metal).convert("RGBA")
+                    textura_metal = textura_metal.resize((ancho_img, alto_img), Image.Resampling.LANCZOS)
+                else:
+                    textura_metal = Image.new("RGBA", (ancho_img, alto_img), (140, 145, 150, 255))
+                
+                capa_interior_pura = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                draw_interior_pura = ImageDraw.Draw(capa_interior_pura)
+                draw_interior_pura.text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255))
+                textura_recortada = Image.composite(textura_metal, Image.new("RGBA", img.size, (0, 0, 0, 0)), capa_interior_pura)
+                
+                img.alpha_composite(capa_resplandor)
+                img.alpha_composite(capa_texto)
+                img.alpha_composite(textura_recortada)
             
             ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
             img.convert("RGB").save(ruta_temporal, "PNG")
