@@ -13,7 +13,6 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 # ==========================================
 # CACHÉ DE HISTORIAL EN MEMORIA
 # ==========================================
-# Evita que el bot repita envíos múltiples veces dentro del mismo día/bloque temporal.
 HISTORIAL_ENVIADOS_CACHE = {}
 
 # ==========================================
@@ -26,6 +25,14 @@ TEMA_ACTIVO = "rojo"
 # ==========================================
 POS_X = 20
 POS_Y = 565
+
+# ==========================================
+# JEFES ESPECIALES (Rango aleatorio / sin hora fija exacta)
+# ==========================================
+JEFS_ESPECIALES_RANDOM = {
+    "core", "orfen", "baium", "zaken", "freya", 
+    "zariche", "frintezza", "queen ant", "electrical", "balrog"
+}
 
 # ==========================================
 # FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
@@ -152,7 +159,6 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     elif tipo_filtro == "salio":
         subcarpetas_a_probar = ["raid/salio/"]
     else:
-        # Búsqueda específica según el tema escogido (ej: imagen/raid/rojo/ o imagen/raid/morado/)
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
     for sub in subcarpetas_a_probar:
@@ -234,14 +240,20 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # SERVICIO 1: ANTES (Envía la imagen limpia 10 mins antes)
+            # SERVICIO 1: ANTES (Aviso previo)
             # =========================================================================
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
                 
-                tiempo_aviso_previo = dt_obj - timedelta(minutes=10)
-                diferencia_segundos = (ahora_actual - tiempo_aviso_previo).total_seconds()
+                # Si es un jefe especial random, publica a la hora justa que comienza su random
+                if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
+                    tiempo_objetivo = dt_obj
+                else:
+                    # Los normales publican 10 minutos antes de su hora fija
+                    tiempo_objetivo = dt_obj - timedelta(minutes=10)
+
+                diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
                 clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
                 
                 if 0 <= diferencia_segundos < 60 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
@@ -251,15 +263,27 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # SERVICIO 2: SALIÓ (Envía la imagen limpia al cambiar a vivo)
+            # SERVICIO 2: SALIÓ (Aviso de salida)
             # =========================================================================
             elif tipo_filtro == "salio":
-                if es_vivo:
-                    clave_id_salio = f"{nombre_base_limpio}_salio_{ahora_actual.strftime('%Y%m%d_%H')}"
-                    if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
-                        registro["nombre_imagen_base"] = nombre_base_limpio
-                        datos_procesados.append(registro)
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
+                # Si es especial random, espera a que la web marque estado VIVO
+                if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
+                    if es_vivo:
+                        clave_id_salio = f"{nombre_base_limpio}_salio_{ahora_actual.strftime('%Y%m%d_%H')}"
+                        if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                            registro["nombre_imagen_base"] = nombre_base_limpio
+                            datos_procesados.append(registro)
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
+                else:
+                    # Para los jefes normales, publica exactamente a la hora exacta que trae la tabla
+                    if dt_obj:
+                        diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
+                        clave_id_salio = f"{nombre_base_limpio}_salio_{dt_obj.strftime('%Y%m%d_%H%M')}"
+                        
+                        if 0 <= diferencia_segundos < 60 and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                            registro["nombre_imagen_base"] = nombre_base_limpio
+                            datos_procesados.append(registro)
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
                 continue
 
             # =========================================================================
@@ -301,7 +325,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                         if 18 <= dt_obj.hour <= 23:
                             fecha_raid_dia = dt_obj.date()
                             
-                            # Validamos estrictamente que la ejecución ocurra a las 14:00 horas en punto (minuto 0)
+                            # Validamos que la ejecución ocurra a las 14:00 horas en punto (minuto 0)
                             if ahora_actual.hour == 14 and ahora_actual.minute == 0:
                                 clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
                                 
@@ -312,7 +336,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                                     datos_procesados.append(reg_tarde)
                                     HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
                     
-                    # Se excluyen explícitamente los raids de 00:00 a 17:59 (como Galaxia a las 7:40 AM) para que no realicen publicaciones en este servicio.
                     continue
 
         if not datos_procesados:
