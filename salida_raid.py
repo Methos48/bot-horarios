@@ -142,16 +142,28 @@ def obtener_catalogo_imagenes_raid():
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
     """
-    Busca la imagen considerando las extensiones y sufijos personalizados (+h / +m)
-    dentro de las carpetas correspondientes o la raíz del tema.
+    Busca la imagen considerando la estructura física correcta de carpetas
+    (antes, armando, salio) con soporte para el tema activo o rutas directas.
     """
-    subcarpetas_a_probar = ["antes/", "armando/", "salio/", ""]
+    if tipo_filtro == "antes":
+        subcarpetas_a_probar = ["antes/"]
+    elif tipo_filtro == "salio":
+        subcarpetas_a_probar = ["salio/"]
+    else:
+        subcarpetas_a_probar = ["armando/", ""]
 
     for sub in subcarpetas_a_probar:
         for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-            clave_intento = f"{tema}/raid/{sub}{nombre_base_raid}{ext}"
-            if clave_intento in catalogo:
-                return catalogo[clave_intento]
+            claves_intento = [
+                f"{sub}{nombre_base_raid}{ext}",
+                f"raid/{sub}{nombre_base_raid}{ext}",
+                f"{tema}/raid/{sub}{nombre_base_raid}{ext}",
+                f"raid/{tema}/{sub}{nombre_base_raid}{ext}"
+            ]
+            
+            for clave_intento in claves_intento:
+                if clave_intento in catalogo:
+                    return catalogo[clave_intento]
 
     return None
 
@@ -227,26 +239,22 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 if not dt_obj:
                     continue
                 
-                # Definir fechas clave (Día del raid y Día antes a las 10:00 AM)
                 fecha_raid_dia = dt_obj.date()
                 fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
                 
                 dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                 dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
 
-                # Validar ejecución para el Día del Raid (+h) a las 10:00 AM
                 diferencia_horas_h = (ahora_actual - dt_10am_dia_raid).total_seconds() / 3600
-                if 0 <= diferencia_horas_h < 1.0: # Ventana de ejecución en la hora de las 10 AM
+                if 0 <= diferencia_horas_h < 1.0: 
                     reg_h = registro.copy()
-                    # Restar 30 minutos a la hora real del raid para la impresión en placa
                     dt_impresion = dt_obj - timedelta(minutes=30)
                     reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
                     reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                     datos_procesados.append(reg_h)
 
-                # Validar ejecución para el Día Antes (+m) a las 10:00 AM
                 diferencia_horas_m = (ahora_actual - dt_10am_dia_antes).total_seconds() / 3600
-                if 0 <= diferencia_horas_m < 1.0: # Ventana de ejecución en la hora de las 10 AM del día previo
+                if 0 <= diferencia_horas_m < 1.0: 
                     reg_m = registro.copy()
                     dt_impresion = dt_obj - timedelta(minutes=30)
                     reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
@@ -255,24 +263,21 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
 
             else:
                 # =========================================================================
-                # LÓGICA DEMÁS RAIDS: Si sale entre las 18:00 y las 23:59hs, se publica a las 14:00hs (2 PM)
+                # LÓGICA DEMÁS RAIDS: Si sale entre las 18:00 y las 23:59hs, se publica a las 14:00hs
                 # =========================================================================
                 if dt_obj and not es_vivo:
                     fecha_raid_dia = dt_obj.date()
                     
-                    # Verificamos si el raid está programado estrictamente entre las 18:00 y las 23:59 horas
                     if 18 <= dt_obj.hour <= 23:
-                        # Hora objetivo de publicación: 14:00 (2 PM) del mismo día del raid
                         dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
                         diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
                         
-                        # Ventana de ejecución de 1 hora a partir de las 14:00 hs
                         if 0 <= diferencia_horas_pub < 1.0:
                             reg_tarde = registro.copy()
-                            reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M") # Mantiene la hora real normal en la placa
+                            reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                             reg_tarde["nombre_imagen_base"] = nombre_base_limpio
                             datos_procesados.append(reg_tarde)
-                        continue # Evita que caiga en el flujo normal si cumple esta regla
+                        continue 
 
                 # Comportamiento normal para el resto de jefes según el filtro
                 if tipo_filtro == "antes":
@@ -332,7 +337,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
             y = POS_Y if POS_Y is not None else (alto_img - 145)
             
-            # Capa resplandor (filtro morado, rojo, etc. usando los colores configurados)
+            # Capa resplandor
             capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
             draw_resplandor = ImageDraw.Draw(capa_resplandor)
             draw_resplandor.text(
