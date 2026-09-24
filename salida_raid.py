@@ -255,13 +255,13 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
 
             else:
                 # =========================================================================
-                # LÓGICA DEMÁS RAIDS: Si sale > 18:00hs, se publica a las 14:00hs (2 PM)
+                # LÓGICA DEMÁS RAIDS: Si sale entre las 18:00 y las 23:59hs, se publica a las 14:00hs (2 PM)
                 # =========================================================================
                 if dt_obj and not es_vivo:
                     fecha_raid_dia = dt_obj.date()
                     
-                    # Verificamos si el raid está programado para después de las 18:00 horas
-                    if dt_obj.hour >= 18:
+                    # Verificamos si el raid está programado estrictamente entre las 18:00 y las 23:59 horas
+                    if 18 <= dt_obj.hour <= 23:
                         # Hora objetivo de publicación: 14:00 (2 PM) del mismo día del raid
                         dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
                         diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
