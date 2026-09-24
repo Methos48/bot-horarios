@@ -1,6 +1,4 @@
 import logging
-import json
-import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
@@ -112,17 +110,17 @@ def _obtener_color_fila_entera(nombre, es_vivo):
     if n_lower in verdes_exactos:
         return True, _hex_a_rgb("#40A309")
 
+    # NUEVA REGLA: Si está VIVO y no pertenece a los anteriores, fondo naranja claro
     if es_vivo:
         return True, _hex_a_rgb("#FFB366")
 
     return False, None
 
-async def ejecutar(bot_instance, ruta_json="horarios.json"):
+async def ejecutar(bot_instance, datos_horario):
     """
-    Función principal llamada desde main.py:
-    - Lee los datos directamente desde un archivo JSON.
+    Función principal llamada desde main.py
     """
-    logger.info("⚙️ Ejecutando salida_ronda: Leyendo JSON, filtrando y procesando datos...")
+    logger.info("⚙️ Ejecutando salida_ronda: Procesando filtros y lógica de ordenamiento por estados...")
     
     canal_id = getattr(config, "RONDA_CHANNEL_ID", None)
     ruta_plantilla = getattr(config, "PLANTILLA_RONDA", None)
@@ -136,20 +134,6 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
     channel = bot_instance.get_channel(canal_id)
     if not channel:
         logger.warning(f"⚠️ No se pudo encontrar el canal de Discord con ID: {canal_id}")
-        return
-
-    # ==========================================
-    # LECTURA DEL ARCHIVO JSON
-    # ==========================================
-    if not os.path.exists(ruta_json):
-        logger.error(f"❌ No se encontró el archivo JSON en la ruta: {ruta_json}")
-        return
-
-    try:
-        with open(ruta_json, "r", encoding="utf-8") as f:
-            datos_horario = json.load(f)
-    except Exception as e:
-        logger.error(f"❌ Error al leer o parsear el archivo JSON: {e}")
         return
 
     try:
@@ -202,7 +186,9 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
 
             datos_procesados.append(registro)
 
-        # 3. ORDENAR ESTRICTO
+        # ==========================================
+        # 3. ORDENAR ESTRICTO PARA VIVOS (Rojos -> Azules -> Verdes -> Comunes) Y LUEGO CRONOLÓGICOS
+        # ==========================================
         rojos_set = {"valakas", "antharas", "fafurion", "fafureon"}
         azules_set = {"core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"}
         verdes_set = {"decarbia", "hekaton", "queen shyeed"}
@@ -222,7 +208,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
                 elif nombre in verdes_set:
                     prioridad_vivo = 3
                 else:
-                    prioridad_vivo = 4
+                    prioridad_vivo = 4 # Vivos comunes
                 return (0, prioridad_vivo, nombre)
             else:
                 return (1, 0, dt)
@@ -261,7 +247,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
         y_inicial = 110
         espaciado_renglon = 24
 
-        # 6. DIBUJAR DATOS EN LA IMAGEN
+        # 6. DIBUJAR DATOS EN LA IMAGEN (MÁX 22 POR LADO)
         for index, jefe in enumerate(datos_ordenados):
             nombre = jefe.get("nombre", "Desconocido")
             nivel = str(jefe.get("nivel", ""))
@@ -290,6 +276,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
                 rect_box = [x_n - 4, y_centro - 10, x_h + 50, y_centro + 10]
                 draw.rectangle(rect_box, fill=color_fondo_especial)
                 
+                # Si el fondo es naranja claro (#FFB366), usamos texto negro para mantener la legibilidad, de lo contrario blanco
                 if color_fondo_especial == _hex_a_rgb("#FFB366"):
                     color_texto_fila = _hex_a_rgb("#000000")
                     color_hora = _hex_a_rgb("#000000")
@@ -325,7 +312,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json"):
         archivo_discord = discord.File(nombre_archivo_salida, filename="horario_ronda.png")
         await channel.send(file=archivo_discord)
         
-        logger.info("✅ Imagen de salida_ronda generada correctamente leyendo desde el JSON.")
+        logger.info("✅ Imagen de salida_ronda generada correctamente con nuevo orden y recuadro naranja para vivos comunes.")
 
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_ronda: {e}")
