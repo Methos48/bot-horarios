@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 import os
 import config
+import asyncio
 
 # Intento de importación opcional para la Capa 2 (OCR Local)
 try:
@@ -24,7 +25,7 @@ client = genai.Client(api_key=getattr(config, "GEMINI_API_KEY", os.getenv("GEMIN
 async def procesar_mensaje_imagenes(message):
     """
     Verifica si el mensaje contiene imágenes, aplica el sistema en cascada 
-    y consolida los resultados con múltiples alternativas de respaldo.
+    de forma asíncrona y consolida los resultados.
     """
     if not message.attachments:
         return []
@@ -33,32 +34,38 @@ async def procesar_mensaje_imagenes(message):
     imagenes_procesadas_con_exito = False
 
     for attachment in message.attachments:
-        if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
+        ext = attachment.filename.split('.')[-1].lower()
+        if ext in ['png', 'jpg', 'jpeg', 'webp']:
             logger.info(f"🖼️ Imagen detectada para procesamiento en cascada: {attachment.filename}")
             try:
                 imagen_bytes = await attachment.read()
                 
-                # --- SISTEMA EN CASCADA DE EXTRACCIÓN ---
+                # Detectar mime_type correcto según la extensión
+                mime_map = {
+                    'png': 'image/png',
+                    'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg',
+                    'webp': 'image/webp'
+                }
+                mime_type = mime_map.get(ext, 'image/png')
+                
                 registros_imagen = []
                 
-                # Opción 1: Intentar con Gemini AI (La más inteligente)
+                # --- SISTEMA EN CASCADA DE EXTRACCIÓN (Asíncrono para no bloquear Discord) ---
+                
+                # Opción 1: Intentar con Gemini AI (Envuelto en thread para evitar bloqueo)
                 try:
-                    registros_imagen = _procesar_con_gemini(imagen_bytes)
+                    registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
                 except Exception as e_gemini:
                     logger.warning(f"⚠️ Capa 1 (Gemini) falló: {e_gemini}. Intentando capa alternativa...")
 
-                # Opción 2: Si Gemini falla o no da resultados, usar OCR local (Tesseract)
+                # Opción 2: Si Gemini falla, usar OCR local (Tesseract en thread separado)
                 if not registros_imagen and OCR_LOCAL_DISPONIBLE:
                     logger.info("🔄 Activando Capa 2: OCR Local (Tesseract)...")
                     try:
-                        registros_imagen = _procesar_con_tesseract_local(imagen_bytes)
+                        registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
                     except Exception as e_ocr:
                         logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}.")
-
-                # Opción 3: Extracción heurística de respaldo basada en patrones de texto plano si todo lo demás falla
-                if not registros_imagen:
-                    logger.info("🔄 Activando Capa 3: Análisis de respaldo por patrones...")
-                    registros_imagen = _procesar_heuristicamente_bytes(imagen_bytes)
 
                 if registros_imagen:
                     todos_los_registros.extend(registros_imagen)
@@ -76,35 +83,35 @@ async def procesar_mensaje_imagenes(message):
 
     return _consolidar_y_ordenar_registros(todos_los_registros)
 
-def _procesar_con_gemini(imagen_bytes):
+def _procesar_con_gemini(imagen_bytes, mime_type):
     """Capa 1: Extracción mediante la API de Gemini."""
     prompt = (
         "Analiza esta imagen de un juego MMORPG. Extrae cada jefe o evento junto con su horario o estado correspondiente. "
         "Devuelve los resultados en una lista de líneas limpias donde cada línea tenga el formato exacto: "
         "Nombre del Jefe | Fecha, Hora o Estado (ej: Valakas | Jueves 17/09 22:30 o Antharas | Alive). "
-        "No agregues texto introductorio, solo los datos extraídos."
+        "No agregues texto introductorio ni bloques de código markdown, solo los datos extraídos."
     )
     response = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=[types.Part.from_bytes(data=imagen_bytes, mime_type="image/png"), prompt]
+        model='gemini-2.5-flash', # Actualizado a un modelo estándar estable
+        contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
     )
     return _parsear_texto_crudo(response.text)
 
 def _procesar_con_tesseract_local(imagen_bytes):
-    """Capa 2: Respaldo local usando Tesseract OCR (requiere pytesseract y tesseract-ocr en el sistema)."""
+    """Capa 2: Respaldo local usando Tesseract OCR."""
     imagen = Image.open(io.BytesIO(imagen_bytes))
     texto_extraido = pytesseract.image_to_string(imagen)
     return _parsear_texto_crudo(texto_extraido)
-
-def _procesar_heuristicamente_bytes(imagen_bytes):
-    """Capa 3 de emergencia: Devuelve un registro genérico o vacío controlado para evitar que el bot se rompa."""
-    return []
 
 def _parsear_texto_crudo(texto_crudo):
     """Procesa, limpia y normaliza el texto obtenido de cualquier capa."""
     if not texto_crudo:
         return []
         
+    # Limpiar posibles bloques de código markdown que devuelva la IA
+    texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
+    texto_crudo = re.sub(r'```\s*', '', texto_crudo)
+    
     lineas = texto_crudo.strip().split('\n')
     registros = []
     zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
@@ -172,10 +179,14 @@ def _parsear_texto_crudo(texto_crudo):
     return registros
 
 def _consolidar_y_ordenar_registros(registros):
-    """Consolida, elimina duplicados y ordena los registros finales."""
+    """Consolida, elimina duplicados y ordena los registros finales asegurando unicidad."""
     unicos = {}
     for r in registros:
-        nombre_key = r["nombre"].lower()
+        nombre_key = r["nombre"].strip().lower()
+        # Ignorar entradas vacías o inválidas
+        if not nombre_key or r["tiempo_str"] in ["-", "", "None"] and not r["es_vivo"]:
+            continue
+            
         if nombre_key not in unicos:
             unicos[nombre_key] = r
         else:
