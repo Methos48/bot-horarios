@@ -56,7 +56,8 @@ NIVELES_JEFE_MANUAL = {
 # Lista blanca estricta para forzar dentro de raid_60_plus independientemente de su nivel numérico
 WH_RAID_60_PLUS_EXTRA = {
     "asedio", "p v p", "x9", "x 9", "foto mes", 
-    "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica"
+    "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
+    "valakas", "baium", "frintezza", "freya", "antharas", "fafureon"
 }
 
 def asignar_nivel_manual(lista_jefes):
@@ -420,7 +421,7 @@ async def on_message(message):
                     pass
 
             if nuevos_registros:
-                # 1. Asignar niveles
+                # 1. Asignar niveles y forzar integración en 60+ usando la lista blanca ampliada
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
                 # 2. Obtener registros actuales de las tablas
@@ -451,22 +452,23 @@ async def on_message(message):
                     if nombre:
                         dict_combinado[nombre] = reg
 
-                # 4. Reclasificar todo el conjunto combinado en las 3 tablas
+                # 4. Reclasificar todo el conjunto combinado integrando los manuales directamente a la lista de 60+
                 lista_total_actualizada = list(dict_combinado.values())
                 nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
                 nuevos_vivo_muerto = actuales_vivo_muerto
 
-                if (listas_han_cambiado(actuales_r60_plus, nuevos_r60_plus) or 
-                    listas_han_cambiado(actuales_r60_menos, nuevos_r60_menos)):
+                # Actualizar y guardar en memoria
+                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
+                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
 
-                    MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
-                    MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-
-                    guardar_memoria_a_json_completa()
-                    logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
-                 
+                guardar_memoria_a_json_completa()
+                logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
+               
                 # Ejecutar el disparador exclusivo para entradas manuales con los registros procesados
                 await disparar_salidas_manuales(bot, nuevos_registros)
+                
+                # Opcional: Ejecutar también la salida de ronda para reflejar los cambios en la segunda imagen automáticamente
+                await disparar_salidas_por_cambios(bot)
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
