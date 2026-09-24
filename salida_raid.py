@@ -152,7 +152,8 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     elif tipo_filtro == "salio":
         subcarpetas_a_probar = ["raid/salio/"]
     else:
-        subcarpetas_a_probar = [f"{tema}/"]
+        # Búsqueda específica según el tema escogido (ej: imagen/raid/rojo/ o imagen/raid/morado/)
+        subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
     for sub in subcarpetas_a_probar:
         for ext in ['.png', '.jpg', '.webp', '.jpeg']:
@@ -296,29 +297,23 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = True
                 else:
                     if dt_obj and not es_vivo:
-                        fecha_raid_dia = dt_obj.date()
+                        # RESTRICCIÓN ESTRICTA: Solo raids entre las 18:00 y las 23:59
                         if 18 <= dt_obj.hour <= 23:
-                            dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
-                            diferencia_seg_pub = (ahora_actual - dt_hora_publicacion).total_seconds()
-                            clave_id_pub = f"{nombre_base_limpio}_tarde_{dt_obj.strftime('%Y%m%d_%H%M')}"
+                            fecha_raid_dia = dt_obj.date()
                             
-                            if 0 <= diferencia_seg_pub < 60 and clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
-                                reg_tarde = registro.copy()
-                                reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                                reg_tarde["nombre_imagen_base"] = nombre_base_limpio
-                                datos_procesados.append(reg_tarde)
-                                HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
-                            continue 
-
-                    if es_vivo:
-                        registro["tiempo_str_final"] = "VIVO"
-                    elif dt_obj:
-                        registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                    else:
-                        registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
-                        
-                    registro["nombre_imagen_base"] = nombre_base_limpio
-                    datos_procesados.append(registro)
+                            # Validamos estrictamente que la ejecución ocurra a las 14:00 horas en punto (minuto 0)
+                            if ahora_actual.hour == 14 and ahora_actual.minute == 0:
+                                clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
+                                
+                                if clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
+                                    reg_tarde = registro.copy()
+                                    reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                                    reg_tarde["nombre_imagen_base"] = nombre_base_limpio
+                                    datos_procesados.append(reg_tarde)
+                                    HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
+                    
+                    # Se excluyen explícitamente los raids de 00:00 a 17:59 (como Galaxia a las 7:40 AM) para que no realicen publicaciones en este servicio.
+                    continue
 
         if not datos_procesados:
             logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
