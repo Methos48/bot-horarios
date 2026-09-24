@@ -11,6 +11,12 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
+# CACHÉ DE HISTORIAL EN MEMORIA
+# ==========================================
+# Evita que el bot repita envíos múltiples veces dentro del mismo día/bloque temporal.
+HISTORIAL_ENVIADOS_CACHE = {}
+
+# ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL
 # ==========================================
 TEMA_ACTIVO = "rojo"
@@ -229,28 +235,36 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # SERVICIO 1: ANTES (Envía la imagen limpia sin estampar hora)
+            # SERVICIO 1: ANTES (Envía la imagen limpia 10 mins antes)
             # =========================================================================
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
-                diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
-                if 0 <= diferencia_minutos < 1.5:
+                
+                tiempo_aviso_previo = dt_obj - timedelta(minutes=10)
+                diferencia_segundos = (ahora_actual - tiempo_aviso_previo).total_seconds()
+                clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
+                
+                if 0 <= diferencia_segundos < 60 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
                     registro["nombre_imagen_base"] = nombre_base_limpio
                     datos_procesados.append(registro)
+                    HISTORIAL_ENVIADOS_CACHE[clave_id] = True
                 continue
 
             # =========================================================================
-            # SERVICIO 2: SALIÓ (Envía la imagen limpia sin estampar hora)
+            # SERVICIO 2: SALIÓ (Envía la imagen limpia al cambiar a vivo)
             # =========================================================================
             elif tipo_filtro == "salio":
                 if es_vivo:
-                    registro["nombre_imagen_base"] = nombre_base_limpio
-                    datos_procesados.append(registro)
+                    clave_id_salio = f"{nombre_base_limpio}_salio_{ahora_actual.strftime('%Y%m%d_%H')}"
+                    if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                        registro["nombre_imagen_base"] = nombre_base_limpio
+                        datos_procesados.append(registro)
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
                 continue
 
             # =========================================================================
-            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID (Este valida si estampa o no la hora)
+            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID
             # =========================================================================
             else:
                 if nombre_base_limpio in raids_especiales_dragones:
@@ -263,33 +277,39 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                     dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
 
-                    diferencia_horas_h = (ahora_actual - dt_10am_dia_raid).total_seconds() / 3600
-                    if 0 <= diferencia_horas_h < 1.0: 
+                    diferencia_seg_h = (ahora_actual - dt_10am_dia_raid).total_seconds()
+                    clave_id_h = f"{nombre_base_limpio}_h_{dt_obj.strftime('%Y%m%d_%H%M')}"
+                    if 0 <= diferencia_seg_h < 60 and clave_id_h not in HISTORIAL_ENVIADOS_CACHE:
                         reg_h = registro.copy()
                         dt_impresion = dt_obj - timedelta(minutes=30)
                         reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
                         reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                         datos_procesados.append(reg_h)
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_h] = True
 
-                    diferencia_horas_m = (ahora_actual - dt_10am_dia_antes).total_seconds() / 3600
-                    if 0 <= diferencia_horas_m < 1.0: 
+                    diferencia_seg_m = (ahora_actual - dt_10am_dia_antes).total_seconds()
+                    clave_id_m = f"{nombre_base_limpio}_m_{dt_obj.strftime('%Y%m%d_%H%M')}"
+                    if 0 <= diferencia_seg_m < 60 and clave_id_m not in HISTORIAL_ENVIADOS_CACHE:
                         reg_m = registro.copy()
                         dt_impresion = dt_obj - timedelta(minutes=30)
                         reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
                         reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
                         datos_procesados.append(reg_m)
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_m] = True
                 else:
                     if dt_obj and not es_vivo:
                         fecha_raid_dia = dt_obj.date()
                         if 18 <= dt_obj.hour <= 23:
                             dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
-                            diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
+                            diferencia_seg_pub = (ahora_actual - dt_hora_publicacion).total_seconds()
+                            clave_id_pub = f"{nombre_base_limpio}_tarde_{dt_obj.strftime('%Y%m%d_%H%M')}"
                             
-                            if 0 <= diferencia_horas_pub < 1.0:
+                            if 0 <= diferencia_seg_pub < 60 and clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
                                 reg_tarde = registro.copy()
                                 reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                                 reg_tarde["nombre_imagen_base"] = nombre_base_limpio
                                 datos_procesados.append(reg_tarde)
+                                HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
                             continue 
 
                     if es_vivo:
