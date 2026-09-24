@@ -141,10 +141,6 @@ def obtener_catalogo_imagenes_raid():
 
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
-    """
-    Busca la imagen considerando la estructura física correcta de carpetas
-    (antes, armando, salio) con soporte para el tema activo o rutas directas.
-    """
     if tipo_filtro == "antes":
         subcarpetas_a_probar = ["antes/"]
     elif tipo_filtro == "salio":
@@ -233,72 +229,80 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # LÓGICA ESPECIAL DRAGONES (Antharas, Valakas, Fafureon a las 10:00 AM)
+            # SERVICIO 1: ANTES (Independiente)
             # =========================================================================
-            if nombre_base_limpio in raids_especiales_dragones:
-                if not dt_obj:
+            if tipo_filtro == "antes":
+                if es_vivo or not dt_obj:
                     continue
-                
-                fecha_raid_dia = dt_obj.date()
-                fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
-                
-                dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
-                dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
-
-                diferencia_horas_h = (ahora_actual - dt_10am_dia_raid).total_seconds() / 3600
-                if 0 <= diferencia_horas_h < 1.0: 
-                    reg_h = registro.copy()
-                    dt_impresion = dt_obj - timedelta(minutes=30)
-                    reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
-                    reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
-                    datos_procesados.append(reg_h)
-
-                diferencia_horas_m = (ahora_actual - dt_10am_dia_antes).total_seconds() / 3600
-                if 0 <= diferencia_horas_m < 1.0: 
-                    reg_m = registro.copy()
-                    dt_impresion = dt_obj - timedelta(minutes=30)
-                    reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
-                    reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
-                    datos_procesados.append(reg_m)
-
-            else:
-                # =========================================================================
-                # LÓGICA DEMÁS RAIDS: Si sale entre las 18:00 y las 23:59hs, se publica a las 14:00hs
-                # =========================================================================
-                if dt_obj and not es_vivo:
-                    fecha_raid_dia = dt_obj.date()
-                    
-                    if 18 <= dt_obj.hour <= 23:
-                        dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
-                        diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
-                        
-                        if 0 <= diferencia_horas_pub < 1.0:
-                            reg_tarde = registro.copy()
-                            reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                            reg_tarde["nombre_imagen_base"] = nombre_base_limpio
-                            datos_procesados.append(reg_tarde)
-                        continue 
-
-                # Comportamiento normal para el resto de jefes según el filtro
-                if tipo_filtro == "antes":
-                    if es_vivo:
-                        continue
-                    diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
-                    if not (0 <= diferencia_minutos < 1.5):
-                        continue
-                elif tipo_filtro == "salio":
-                    if not es_vivo:
-                        continue
-
-                if es_vivo or tipo_filtro == "salio":
-                    registro["tiempo_str_final"] = "VIVO"
-                elif dt_obj:
+                diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
+                if 0 <= diferencia_minutos < 1.5:
                     registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                else:
-                    registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
+                    registro["nombre_imagen_base"] = nombre_base_limpio
+                    datos_procesados.append(registro)
+                continue
+
+            # =========================================================================
+            # SERVICIO 2: SALIÓ (Independiente)
+            # =========================================================================
+            elif tipo_filtro == "salio":
+                if es_vivo:
+                    registro["tiempo_str_final"] = "VIVO"
+                    registro["nombre_imagen_base"] = nombre_base_limpio
+                    datos_procesados.append(registro)
+                continue
+
+            # =========================================================================
+            # SERVICIO 3: PRINCIPAL / RAIDS (Con reglas horarias especiales y dragones)
+            # =========================================================================
+            else:
+                if nombre_base_limpio in raids_especiales_dragones:
+                    if not dt_obj:
+                        continue
                     
-                registro["nombre_imagen_base"] = nombre_base_limpio
-                datos_procesados.append(registro)
+                    fecha_raid_dia = dt_obj.date()
+                    fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
+                    
+                    dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
+                    dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
+
+                    diferencia_horas_h = (ahora_actual - dt_10am_dia_raid).total_seconds() / 3600
+                    if 0 <= diferencia_horas_h < 1.0: 
+                        reg_h = registro.copy()
+                        dt_impresion = dt_obj - timedelta(minutes=30)
+                        reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                        reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
+                        datos_procesados.append(reg_h)
+
+                    diferencia_horas_m = (ahora_actual - dt_10am_dia_antes).total_seconds() / 3600
+                    if 0 <= diferencia_horas_m < 1.0: 
+                        reg_m = registro.copy()
+                        dt_impresion = dt_obj - timedelta(minutes=30)
+                        reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                        reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
+                        datos_procesados.append(reg_m)
+                else:
+                    if dt_obj and not es_vivo:
+                        fecha_raid_dia = dt_obj.date()
+                        if 18 <= dt_obj.hour <= 23:
+                            dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
+                            diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
+                            
+                            if 0 <= diferencia_horas_pub < 1.0:
+                                reg_tarde = registro.copy()
+                                reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                                reg_tarde["nombre_imagen_base"] = nombre_base_limpio
+                                datos_procesados.append(reg_tarde)
+                            continue 
+
+                    if es_vivo:
+                        registro["tiempo_str_final"] = "VIVO"
+                    elif dt_obj:
+                        registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                    else:
+                        registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
+                        
+                    registro["nombre_imagen_base"] = nombre_base_limpio
+                    datos_procesados.append(registro)
 
         if not datos_procesados:
             logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
