@@ -38,19 +38,27 @@ HORA_OFFSET_WEB = 1
 # --- ARCHIVO DE PERSISTENCIA JSON ---
 ARCHIVO_JSON = "jefes_activos.json"
 
-# --- DICCIONARIO DE NIVELES PARA ENTRADAS MANUALES ---
+# --- DICCIONARIO DE NIVELES EXACTOS PARA ENTRADAS MANUALES ---
 NIVELES_JEFE_MANUAL = {
-    "queen ant": 40,
+    "valakas": 85,
+    "balrog": 85,
     "core": 50,
     "orfen": 50,
-    "zaken": 60,
-    "baium": 75,
-    "frintezza": 85,
-    "freya": 85,
-    "zariche": 85,
-    "balrog": 85,
+    "antharas": 85,
+    "electrical": 85,
     "electrica": 85,
-    "electrical": 85
+    "baium": 75,
+    "zaken": 60,
+    "frintezza": 85,
+    "fafureon": 85,
+    "queen ant": 40,
+    "freya": 85,
+    "zariche": 85
+}
+
+# Elementos que deben quedar sin nivel (en blanco)
+NIVELES_VACIOS_EXTRA = {
+    "asedio", "p v p", "x9", "x 9", "foto mes"
 }
 
 # Lista blanca estricta para forzar dentro de raid_60_plus independientemente de su nivel numérico
@@ -61,15 +69,26 @@ WH_RAID_60_PLUS_EXTRA = {
 }
 
 def asignar_nivel_manual(lista_jefes):
-    """Asigna el nivel correspondiente a cada jefe manual basándose en su nombre."""
+    """Asigna el nivel correspondiente o lo deja en blanco según las reglas establecidas."""
     for item in lista_jefes:
         nombre_limpio = item.get("nombre", "").strip().lower()
+        
+        # Si es un evento especial, limpiar el nivel para que salga en blanco
+        if nombre_limpio in NIVELES_VACIOS_EXTRA:
+            item["nivel"] = ""
+            continue
+
+        # Buscar en el diccionario de niveles definidos
+        encontrado = False
         for clave, nivel in NIVELES_JEFE_MANUAL.items():
             if clave in nombre_limpio:
                 item["nivel"] = nivel
+                encontrado = True
                 break
-        else:
-            if "nivel" not in item:
+        
+        # Si no está en ninguna lista, por defecto asignar 85
+        if not encontrado:
+            if "nivel" not in item or item["nivel"] is None:
                 item["nivel"] = 85
     return lista_jefes
 
@@ -182,8 +201,11 @@ def clasificar_y_distribuir_items(lista_items):
 
     for item in lista_items:
         nombre = str(item.get("nombre", "")).strip().lower()
+        
+        # Forzar a 60+ si está en la lista blanca o si su nivel es >= 60
         try:
-            nivel = int(item.get("nivel", 85))
+            nivel_str = str(item.get("nivel", 85)).strip()
+            nivel = int(nivel_str) if nivel_str else 85
         except Exception:
             nivel = 85
 
@@ -333,7 +355,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
     """
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
-        # Filtrar solo Valakas, Antharas y Fafureon para salida_ma
         wh_ma = {"valakas", "antharas", "fafureon"}
         datos_ma = [
             j for j in registros_ingresados 
@@ -345,7 +366,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
             logger.info("✅ salida_ma ejecutada con éxito.")
 
         if registros_ingresados:
-            # 🛑 Excluir balrog y electrical de los registros destinados a salida_horario
             exclusiones = {"balrog", "electrical", "electrica"}
             registros_horario = [
                 j for j in registros_ingresados
@@ -421,7 +441,7 @@ async def on_message(message):
                     pass
 
             if nuevos_registros:
-                # 1. Asignar niveles y forzar integración en 60+ usando la lista blanca ampliada
+                # 1. Asignar niveles personalizados o dejarlos en blanco para eventos especiales
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
                 # 2. Obtener registros actuales de las tablas
@@ -452,7 +472,7 @@ async def on_message(message):
                     if nombre:
                         dict_combinado[nombre] = reg
 
-                # 4. Reclasificar todo el conjunto combinado integrando los manuales directamente a la lista de 60+
+                # 4. Reclasificar todo el conjunto combinado integrando los manuales a la lista de 60+
                 lista_total_actualizada = list(dict_combinado.values())
                 nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
                 nuevos_vivo_muerto = actuales_vivo_muerto
@@ -464,10 +484,8 @@ async def on_message(message):
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
                
-                # Ejecutar el disparador exclusivo para entradas manuales con los registros procesados
+                # Ejecutar salidas manuales y de ronda
                 await disparar_salidas_manuales(bot, nuevos_registros)
-                
-                # Opcional: Ejecutar también la salida de ronda para reflejar los cambios en la segunda imagen automáticamente
                 await disparar_salidas_por_cambios(bot)
 
         except Exception as e:
