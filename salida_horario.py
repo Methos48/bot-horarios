@@ -79,11 +79,11 @@ def _obtener_nombre_item(texto_referencia):
     return None
 
 def _cargar_fuente_aptos():
-    """Carga la fuente FUENTE_APTOS con tamaño 19."""
+    """Carga la fuente FUENTE_APTOS con tamaño 22."""
     fuente_path = getattr(config, "FUENTE_APTOS", None)
     if fuente_path:
         try:
-            return ImageFont.truetype(fuente_path, 19)
+            return ImageFont.truetype(fuente_path, 22)
         except Exception:
             pass
             
@@ -91,11 +91,11 @@ def _cargar_fuente_aptos():
     return ImageFont.load_default()
 
 def _cargar_fuente_biome():
-    """Carga la fuente FUENTE_BIOME con tamaño 19."""
+    """Carga la fuente FUENTE_BIOME con tamaño 22."""
     fuente_path = getattr(config, "FUENTE_BIOME", None)
     if fuente_path:
         try:
-            return ImageFont.truetype(fuente_path, 19)
+            return ImageFont.truetype(fuente_path, 22)
         except Exception:
             pass
             
