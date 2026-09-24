@@ -11,7 +11,7 @@ import asyncio
 # Intento de importación opcional para la Capa 2 (OCR Local)
 try:
     import pytesseract
-    from PIL import Image
+    from PIL import Image, ImageEnhance
     import io
     OCR_LOCAL_DISPONIBLE = True
 except ImportError:
@@ -24,8 +24,8 @@ client = genai.Client(api_key=getattr(config, "GEMINI_API_KEY", os.getenv("GEMIN
 
 async def procesar_mensaje_imagenes(message):
     """
-    Verifica si el mensaje contiene imágenes, aplica el sistema en cascada 
-    de forma asíncrona y consolida los resultados.
+    Verifica si el mensaje contiene imágenes, aplica preprocesamiento visual,
+    ejecuta el sistema en cascada con reintentos y valida campos completos.
     """
     if not message.attachments:
         return []
@@ -36,11 +36,13 @@ async def procesar_mensaje_imagenes(message):
     for attachment in message.attachments:
         ext = attachment.filename.split('.')[-1].lower()
         if ext in ['png', 'jpg', 'jpeg', 'webp']:
-            logger.info(f"🖼️ Imagen detectada para procesamiento en cascada: {attachment.filename}")
+            logger.info(f"🖼️ Imagen detectada para procesamiento: {attachment.filename}")
             try:
-                imagen_bytes = await attachment.read()
+                imagen_bytes_original = await attachment.read()
                 
-                # Detectar mime_type correcto según la extensión
+                # 🚀 1. PREPROCESAMIENTO VISUAL (Mejora nitidez y contraste antes de la IA)
+                imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
+                
                 mime_map = {
                     'png': 'image/png',
                     'jpg': 'image/jpeg',
@@ -50,65 +52,123 @@ async def procesar_mensaje_imagenes(message):
                 mime_type = mime_map.get(ext, 'image/png')
                 
                 registros_imagen = []
+                intentos = 0
+                max_intentos = 2
                 
-                # --- SISTEMA EN CASCADA DE EXTRACCIÓN (Asíncrono para no bloquear Discord) ---
-                
-                # Opción 1: Intentar con Gemini AI (Envuelto en thread para evitar bloqueo)
-                try:
-                    registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
-                except Exception as e_gemini:
-                    logger.warning(f"⚠️ Capa 1 (Gemini) falló: {e_gemini}. Intentando capa alternativa...")
+                # Bucle de reintento si la extracción inicial falla o está incompleta
+                while intentos < max_intentos and not registros_imagen:
+                    intentos += 1
+                    try:
+                        # --- CAPA 1: Gemini AI con imagen optimizada y prompt estricto ---
+                        registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
+                    except Exception as e_gemini:
+                        logger.warning(f"⚠️ Intento {intentos}: Capa 1 (Gemini) falló: {e_gemini}")
+                        await asyncio.sleep(1)
 
-                # Opción 2: Si Gemini falla, usar OCR local (Tesseract en thread separado)
+                # --- CAPA 2: Respaldo local usando Tesseract OCR ---
                 if not registros_imagen and OCR_LOCAL_DISPONIBLE:
                     logger.info("🔄 Activando Capa 2: OCR Local (Tesseract)...")
                     try:
                         registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
                     except Exception as e_ocr:
-                        logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}.")
+                        logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}")
+
+                # --- CAPA 3: Respaldo heurístico por Regex si las anteriores fallan ---
+                if not registros_imagen:
+                    logger.info("🔄 Activando Capa 3: Respaldo Heurístico por Regex...")
+                    try:
+                        texto_crudo_tesseract = pytesseract.image_to_string(Image.open(io.BytesIO(imagen_bytes)))
+                        registros_imagen = _procesar_capa_3_emergencia(texto_crudo_tesseract)
+                    except Exception as e_reg:
+                        logger.warning(f"⚠️ Capa 3 falló: {e_reg}")
 
                 if registros_imagen:
                     todos_los_registros.extend(registros_imagen)
                     imagenes_procesadas_con_exito = True
 
             except Exception as e:
-                logger.error(f"Error crítico procesando la imagen {attachment.filename} en la cascada: {e}")
+                logger.error(f"Error crítico procesando la imagen {attachment.filename}: {e}")
 
     if imagenes_procesadas_con_exito and todos_los_registros:
         try:
             await message.delete()
-            logger.info("🗑️ Mensaje con múltiples imágenes eliminado limpiamente del canal.")
+            logger.info("🗑️ Mensaje con imágenes eliminado limpiamente del canal.")
         except Exception as e:
-            logger.error(f"No se pudo eliminar el mensaje de las imágenes: {e}")
+            logger.error(f"No se pudo eliminar el mensaje: {e}")
 
+    # Consolidar, filtrar y asegurar que todos los campos requeridos estén llenos
     return _consolidar_y_ordenar_registros(todos_los_registros)
 
+
+def _preprocesar_imagen(imagen_bytes):
+    """Aplica escala de grises y alto contraste para que la IA/OCR lea sin errores."""
+    try:
+        imagen = Image.open(io.BytesIO(imagen_bytes)).convert('L')
+        enhancer = ImageEnhance.Contrast(imagen)
+        imagen = enhancer.enhance(2.2) # Elevar contraste
+        
+        output_io = io.BytesIO()
+        imagen.save(output_io, format='PNG')
+        output_io.seek(0)
+        return output_io.getvalue()
+    except Exception as e:
+        logger.warning(f"⚠️ Error en preprocesamiento visual, usando original: {e}")
+        return imagen_bytes
+
+
 def _procesar_con_gemini(imagen_bytes, mime_type):
-    """Capa 1: Extracción mediante la API de Gemini."""
+    """Capa 1: Extracción mediante Gemini con instrucciones estrictas y formato de tabla/lista."""
     prompt = (
-        "Analiza esta imagen de un juego MMORPG. Extrae cada jefe o evento junto con su horario o estado correspondiente. "
-        "Devuelve los resultados en una lista de líneas limpias donde cada línea tenga el formato exacto: "
-        "Nombre del Jefe | Fecha, Hora o Estado (ej: Valakas | Jueves 17/09 22:30 o Antharas | Alive). "
-        "No agregues texto introductorio ni bloques de código markdown, solo los datos extraídos."
+        "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
+        "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
+        "Reglas estrictas:\n"
+        "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
+        "2. Devuelve estrictamente una lista donde cada línea tenga el formato: `Nombre del Jefe | Horario o Estado` (Ejemplo: Queen Ant | jueves 24/09 16:30 o Balrog | VIVO).\n"
+        "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
+        "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
     )
     response = client.models.generate_content(
-        model='gemini-3.6-flash', # Actualizado a un modelo estándar estable
+        model='gemini-3.6-flash',
         contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
     )
     return _parsear_texto_crudo(response.text)
 
+
 def _procesar_con_tesseract_local(imagen_bytes):
-    """Capa 2: Respaldo local usando Tesseract OCR."""
+    """Capa 2: Respaldo local usando Tesseract con configuración optimizada."""
     imagen = Image.open(io.BytesIO(imagen_bytes))
-    texto_extraido = pytesseract.image_to_string(imagen)
+    config_tesseract = r'--oem 3 --psm 6'
+    texto_extraido = pytesseract.image_to_string(imagen, config=config_tesseract)
     return _parsear_texto_crudo(texto_extraido)
+
+
+def _procesar_capa_3_emergencia(texto_crudo):
+    """Capa 3: Respaldo de emergencia mediante expresiones regulares buscando horas."""
+    registros = []
+    zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+    lineas = texto_crudo.split('\n')
+    for linea in lineas:
+        if re.search(r'\d{1,2}:\d{2}', linea):
+            partes = re.split(r'[-–|]', linea)
+            if len(partes) >= 2:
+                nombre = partes[0].strip()
+                resto = partes[1].strip()
+                if nombre:
+                    registros.append({
+                        "nombre": nombre,
+                        "tiempo_str": resto,
+                        "estado": "PROGRAMADO",
+                        "es_vivo": False,
+                        "datetime": datetime.now(zona_actual)
+                    })
+    return registros
+
 
 def _parsear_texto_crudo(texto_crudo):
     """Procesa, limpia y normaliza el texto obtenido de cualquier capa."""
     if not texto_crudo:
         return []
         
-    # Limpiar posibles bloques de código markdown que devuelva la IA
     texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
     texto_crudo = re.sub(r'```\s*', '', texto_crudo)
     
@@ -120,25 +180,23 @@ def _parsear_texto_crudo(texto_crudo):
 
     for linea in lineas:
         linea = linea.strip()
-        if not linea:
+        if not linea or "|" not in linea:
             continue
             
-        if "|" in linea:
-            partes = linea.split("|")
-            nombre_crudo = partes[0].strip()
-            resto = partes[1].strip()
-        else:
-            nombre_crudo = linea
-            resto = ""
+        partes = linea.split("|", 1)
+        nombre_crudo = partes[0].strip()
+        resto = partes[1].strip()
+
+        if not nombre_crudo or resto in ["-", "", "None", "---"]:
+            continue
 
         nombre_lower = nombre_crudo.lower()
-
         if "flame of splendor barakiel" in nombre_lower or "barakiel" in nombre_lower:
             continue
             
         if "balrog" in nombre_lower:
             nombre_limpio = "Balrog"
-        elif "execution electrical" in nombre_lower or "electrical" in nombre_lower or "electric" in nombre_lower:
+        elif "execution electrical" in nombre_lower or "electrical" in nombre_lower:
             nombre_limpio = "Electrical"
         else:
             nombre_limpio = nombre_crudo
@@ -166,7 +224,6 @@ def _parsear_texto_crudo(texto_crudo):
             except ValueError:
                 dt = datetime.max.replace(tzinfo=zona_actual)
         elif tiene_tiempo and not es_vivo:
-            # Si hay hora pero no fecha explícita, asumimos el día de hoy
             try:
                 h, m = map(int, hora_str.split(':'))
                 dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
@@ -177,6 +234,10 @@ def _parsear_texto_crudo(texto_crudo):
         else:
             dt = datetime.max.replace(tzinfo=zona_actual)
             tiempo_str_estandar = "-"
+
+        # 🛡️ VALIDACIÓN ESTRICTA: Solo aceptamos registros que tengan campos completos y válidos
+        if tiempo_str_estandar == "-" and not es_vivo:
+            continue
 
         tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
 
@@ -190,13 +251,13 @@ def _parsear_texto_crudo(texto_crudo):
 
     return registros
 
+
 def _consolidar_y_ordenar_registros(registros):
-    """Consolida, elimina duplicados y ordena los registros finales asegurando unicidad."""
+    """Consolida, elimina duplicados y garantiza que se devuelvan datos limpios a main."""
     unicos = {}
     for r in registros:
         nombre_key = r["nombre"].strip().lower()
-        # Ignorar entradas vacías o inválidas
-        if not nombre_key or r["tiempo_str"] in ["-", "", "None"] and not r["es_vivo"]:
+        if not nombre_key or r["tiempo_str"] == "-":
             continue
             
         if nombre_key not in unicos:
