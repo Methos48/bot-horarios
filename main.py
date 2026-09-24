@@ -319,13 +319,13 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_limpia, key=clave_orden)
 
 # ==============================================================================
-# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Modificado con filtrado de nivel)
+# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Corregido y separado)
 # ==============================================================================
 async def disparar_salidas_por_cambios(bot_instance):
     """
-    Controlado por el ciclo web. Filtra y envía:
-    - salida_ronda: exclusivamente jefes/eventos de nivel 60+ (o especiales/epics de alta categoría)
-    - salida_low: exclusivamente raids de nivel menor a 60
+    Controlado por el ciclo web. Envía de forma independiente:
+    - salida_ronda: exclusivamente la combinación de epics y la tabla 60+
+    - salida_low: exclusivamente la tabla de raids menores a 60
     """
     logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
     try:
@@ -333,54 +333,17 @@ async def disparar_salidas_por_cambios(bot_instance):
         r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
         r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
 
-        # Combinar elementos generales para evaluar el conjunto total de raid 60+
-        datos_ronda_combinados = vivo_muerto_ord + r60_plus_ord
+        # 1. Lista exclusiva para ronda (Epics + Raids de nivel 60+)
+        datos_ronda = vivo_muerto_ord + r60_plus_ord
 
-        # Listado ampliado de excepciones o nombres de alto nivel que siempre deben pertenecer a ronda (60+)
-        wh_r60_plus_extra = {
-            "asedio", "p v p", "x9", "x 9", "foto mes", 
-            "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
-            "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"
-        }
+        # 2. Lista exclusiva para low (Raids menores a 60)
+        datos_low = r60_menos_ord
 
-        datos_ronda_filtrados = []
-        datos_low_filtrados = []
-
-        # Filtrar elementos para salida_ronda (nivel >= 60 o incluidos en las excepciones de nivel alto)
-        for item in datos_ronda_combinados:
-            nombre = str(item.get("nombre", "")).strip().lower()
-            try:
-                nivel_str = str(item.get("nivel", 85)).strip()
-                nivel = int(nivel_str) if nivel_str else 85
-            except Exception:
-                nivel = 85
-
-            if nombre in wh_r60_plus_extra or nivel >= 60:
-                datos_ronda_filtrados.append(item)
-            else:
-                datos_low_filtrados.append(item)
-
-        # Filtrar también los elementos específicos de raid_60_menos para asegurar que cumplan la regla estricta < 60
-        for item in r60_menos_ord:
-            nombre = str(item.get("nombre", "")).strip().lower()
-            try:
-                nivel_str = str(item.get("nivel", 85)).strip()
-                nivel = int(nivel_str) if nivel_str else 85
-            except Exception:
-                nivel = 85
-
-            if nombre in wh_r60_plus_extra or nivel >= 60:
-                if item not in datos_ronda_filtrados:
-                    datos_ronda_filtrados.append(item)
-            else:
-                if item not in datos_low_filtrados:
-                    datos_low_filtrados.append(item)
-
-        # Ejecutar los módulos de salida correspondientes con los datos debidamente filtrados
-        await salida_ronda.ejecutar(bot_instance, ordenar_y_priorizar(datos_ronda_filtrados))
-        await salida_low.ejecutar(bot_instance, ordenar_y_priorizar(datos_low_filtrados))
+        # Ejecutar las salidas de forma completamente independiente sin cruzar listas
+        await salida_ronda.ejecutar(bot_instance, ordenar_y_priorizar(datos_ronda))
+        await salida_low.ejecutar(bot_instance, ordenar_y_priorizar(datos_low))
         
-        logger.info("✅ Salidas automáticas web ejecutadas con éxito (filtrado 60+ y 60- aplicado).")
+        logger.info("✅ Salidas automáticas web ejecutadas con éxito (listas separadas correctamente).")
     except Exception as e:
         logger.error(f"Error al disparar salidas web: {e}")
 
