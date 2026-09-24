@@ -26,25 +26,21 @@ def _es_jefe_especial(nombre):
 def _es_epico_o_superior(nombre):
     """
     Define cuáles jefes son los únicos que pueden pasar a estado VIVO automáticamente 
-    cuando llega su hora, aplicando la excepción estricta para los épicos permitidos.
+    cuando llega su hora, limitando las excepciones estrictamente.
     """
     if not nombre:
         return False
     n_lower = nombre.lower().strip()
     
-    # Excepciones permitidas y jefes especiales superiores
-    especiales_superiores = [
-        "core", "orfen", "queen ant", "zaken", "baium", "frintezza", 
-        "freya", "zariche", "balrog", "electrical", "execution", 
-        "valakas", "antharas", "fafurion", "fafureon", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
-    return any(esp in n_lower for esp in especiales_superiores)
+    # Excepciones estrictas permitidas para activar VIVO automáticamente
+    excepciones_exactas = ["core", "orfen", "queen ant", "zaken"]
+    return n_lower in excepciones_exactas or any(esp in n_lower for esp in ["valakas", "antharas", "fafurion", "fafureon", "baium", "frintezza", "freya", "zariche"])
 
 def _filtrar_y_clasificar(jefe):
     """
     Filtra la lista estrictamente:
     - Solo nivel 60+ 
-    - O las excepciones permitidas: Zaken, Core, Orfen y Queen Ant (más los dragones/eventos especiales necesarios).
+    - Excepciones estrictas permitidas por nombre exacto: Zaken, Core, Orfen, Queen Ant.
     """
     nombre = jefe.get("nombre", "").strip()
     n_lower = nombre.lower()
@@ -52,15 +48,9 @@ def _filtrar_y_clasificar(jefe):
     if "orfen's handmaiden" in n_lower or "orfens handmaiden" in n_lower:
         return False
     
-    # Excepciones estrictas solicitadas y especiales permitidas
-    excepciones_permitidas = [
-        "zaken", "core", "orfen", "queen ant",
-        "valakas", "antharas", "fafurion", "fafureon",
-        "baium", "frintezza", "freya", "zariche", "balrog", 
-        "electrical", "execution", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
-    
-    es_excepcion = any(exc in n_lower for exc in excepciones_permitidas)
+    # Lista estricta de nombres exactos permitidos por debajo de nivel 60
+    nombres_exactos_permitidos = ["zaken", "core", "orfen", "queen ant"]
+    es_excepcion_exacta = n_lower in nombres_exactos_permitidos
     
     nivel_raw = jefe.get("nivel", 0)
     nivel = 0
@@ -73,8 +63,8 @@ def _filtrar_y_clasificar(jefe):
     except Exception:
         nivel = 0
     
-    # Condición final: O es nivel 60 o más, o entra en las excepciones permitidas
-    if nivel >= 60 or es_excepcion:
+    # Condición final: O es nivel 60 o más, o es una de las excepciones exactas permitidas
+    if nivel >= 60 or es_excepcion_exacta:
         return True
     return False
 
@@ -91,10 +81,7 @@ def _obtener_color_hora(nombre, es_vivo):
     if n_lower in rojos_exactos:
         return _hex_a_rgb("#FF0000")
 
-    azules_exactos = [
-        "core", "orfen", "balrog", "electrical", "execution", "baium", "zaken",  
-        "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant"]
     if n_lower in azules_exactos:
         return _hex_a_rgb("#4D93D9")
 
@@ -117,10 +104,7 @@ def _obtener_color_fila_entera(nombre):
     if n_lower in verdes_exactos:
         return True, _hex_a_rgb("#40A309")
 
-    azules_exactos = [
-        "balrog", "electrical", "execution", "core", "orfen", "baium", "zaken", 
-        "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
-    ]
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant"]
     if n_lower in azules_exactos:
         return True, _hex_a_rgb("#4D93D9")
 
@@ -310,7 +294,7 @@ async def ejecutar(bot_instance, datos_horario):
         archivo_discord = discord.File(nombre_archivo_salida, filename="horario_ronda.png")
         await channel.send(file=archivo_discord)
         
-        logger.info("✅ Imagen de salida_ronda generada correctamente respetando la exclusividad de épicos.")
+        logger.info("✅ Imagen de salida_ronda generada correctamente aplicando filtro estricto de nivel 60+.")
 
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_ronda: {e}")
