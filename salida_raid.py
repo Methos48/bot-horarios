@@ -254,6 +254,26 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                     datos_procesados.append(reg_m)
 
             else:
+                # =========================================================================
+                # LÓGICA DEMÁS RAIDS: Si sale > 18:00hs, se publica a las 14:00hs (2 PM)
+                # =========================================================================
+                if dt_obj and not es_vivo:
+                    fecha_raid_dia = dt_obj.date()
+                    
+                    # Verificamos si el raid está programado para después de las 18:00 horas
+                    if dt_obj.hour >= 18:
+                        # Hora objetivo de publicación: 14:00 (2 PM) del mismo día del raid
+                        dt_hora_publicacion = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=14, minute=0)
+                        diferencia_horas_pub = (ahora_actual - dt_hora_publicacion).total_seconds() / 3600
+                        
+                        # Ventana de ejecución de 1 hora a partir de las 14:00 hs
+                        if 0 <= diferencia_horas_pub < 1.0:
+                            reg_tarde = registro.copy()
+                            reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M") # Mantiene la hora real normal en la placa
+                            reg_tarde["nombre_imagen_base"] = nombre_base_limpio
+                            datos_procesados.append(reg_tarde)
+                        continue # Evita que caiga en el flujo normal si cumple esta regla
+
                 # Comportamiento normal para el resto de jefes según el filtro
                 if tipo_filtro == "antes":
                     if es_vivo:
