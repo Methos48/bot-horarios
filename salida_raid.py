@@ -24,7 +24,6 @@ POS_Y = 565
 # ==========================================
 # FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
 # ==========================================
-# 1. Filtro original / predeterminado (al comenzar la hora exacta del random -> imagen/raid/antes/)
 FILTRO_PUBLICAR_RAIDS = {
     "Valakas": "si",
     "Antharas": "si",
@@ -49,7 +48,6 @@ FILTRO_PUBLICAR_RAIDS = {
     "otros_60_menos": "no"
 }
 
-# 2. Segundo filtro ("antes" - 30 minutos antes del inicio -> imagen/raid/armando/)
 FILTRO_PUBLICAR_RAIDS_ANTES = {
     "Valakas": "si",
     "Antharas": "si",
@@ -74,7 +72,6 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
     "otros_60_menos": "no"
 }
 
-# 3. Tercer filtro ("salio" - estrictamente cuando la web indique VIVO -> imagen/raid/salio/)
 FILTRO_PUBLICAR_RAIDS_SALIO = {
     "Valakas": "si",
     "Antharas": "si",
@@ -101,9 +98,6 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 
 
 def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
-    """
-    Evalúa de forma independiente si un raid debe publicarse según el diccionario de filtros especificado.
-    """
     if not nombre_jefe:
         return False
         
@@ -129,10 +123,6 @@ def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
 
 
 def obtener_catalogo_imagenes_raid():
-    """
-    Escanea recursivamente el directorio base 'imagen/raid' y todas las subcarpetas 
-    para registrar todas las imágenes disponibles.
-    """
     directorio_base = getattr(config, "DIR_RAID", "imagen/raid")
     catalogo = {}
     
@@ -150,31 +140,15 @@ def obtener_catalogo_imagenes_raid():
     return catalogo
 
 
-def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal", es_especial_armando=False):
+def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
     """
-    Busca la imagen del raid en la subcarpeta correspondiente:
-    - Si es 'armando' (30 min antes para los 3 dragones) -> {tema}/raid/armando/{nombre}{ext}
-    - Si es 'antes' (random exacto) -> {tema}/raid/antes/{nombre}{ext}
-    - Si es 'salio' (estado VIVO) -> {tema}/raid/salio/{nombre}{ext}
-    - Respaldo general -> {tema}/raid/{nombre}{ext}
+    Busca la imagen considerando las extensiones y sufijos personalizados (+h / +m)
+    dentro de las carpetas correspondientes o la raíz del tema.
     """
-    subcarpetas_a_probar = []
-
-    if es_especial_armando:
-        subcarpetas_a_probar.append("armando/")
-
-    if tipo_filtro == "antes":
-        subcarpetas_a_probar.append("antes/")
-    elif tipo_filtro == "salio":
-        subcarpetas_a_probar.append("salio/")
-    
-    # Respaldo por defecto
-    subcarpetas_a_probar.append("")
+    subcarpetas_a_probar = ["antes/", "armando/", "salio/", ""]
 
     for sub in subcarpetas_a_probar:
         for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-            # Nota: Construye la ruta considerando la estructura solicitada ej: imagen/raid/{tema}/raid/armando/...
-            # Dependiendo de cómo guardes tu catálogo, se busca con la estructura interna del tema.
             clave_intento = f"{tema}/raid/{sub}{nombre_base_raid}{ext}"
             if clave_intento in catalogo:
                 return catalogo[clave_intento]
@@ -183,9 +157,6 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 
 
 async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
-    """
-    Función principal de ejecución dividida por filtros y lógica temporal.
-    """
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
         nombre_filtro_log = "antes"
@@ -211,41 +182,34 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
         return
 
     try:
-        # 1. CARGAR CATÁLOGO DE IMÁGENES
         catalogo_raids = obtener_catalogo_imagenes_raid()
         if not catalogo_raids:
             logger.warning("⚠️ El catálogo de imágenes de raid está vacío.")
             return
 
-        # 2. FILTRAR Y LIMPIAR LA INFORMACIÓN RECIBIDA
-        datos_procesados = []
-        nombres_procesados = set()
         ahora_actual = datetime.now(ZONA_ARGENTINA)
-
         raids_especiales_dragones = {"valakas", "antharas", "fafureon"}
+        
+        datos_procesados = []
 
         for jefe in datos_horario:
             nombre_jefe = jefe.get("nombre", jefe.get("nombre_imagen", ""))
             nivel_jefe = jefe.get("nivel", None)
             
-            # Comprobación básica del filtro de configuración (si/no)
             if not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
                 continue
                 
             nombre_crudo = nombre_jefe.strip()
-            nombre_imagen_base = "".join(c for c in nombre_crudo if c.isalnum()).lower()
+            nombre_base_limpio = "".join(c for c in nombre_crudo if c.isalnum()).lower()
             
-            if not nombre_imagen_base or nombre_imagen_base in nombres_procesados:
+            if not nombre_base_limpio:
                 continue
-            nombres_procesados.add(nombre_imagen_base)
                 
             registro = jefe.copy()
             estado = registro.get("estado", "").upper()
             tiempo_str = registro.get("tiempo_str", "-")
-            
             es_vivo = (estado == "VIVO" or estado == "ALIVE" or registro.get("es_vivo", False))
             
-            # Parseo de fecha/hora de respawn
             dt_obj = None
             if tiempo_str and tiempo_str != "-":
                 try:
@@ -253,41 +217,63 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 except ValueError:
                     pass
 
-            es_armando = False
+            if not dt_obj and not es_vivo:
+                continue
 
-            # APLICAR LÓGICA DE TIEMPO SEGÚN EL TIPO DE FILTRO
-            if tipo_filtro == "antes":
-                if es_vivo or not dt_obj:
+            # =========================================================================
+            # LÓGICA ESPECIAL DRAGONES (Antharas, Valakas, Fafureon a las 10:00 AM)
+            # =========================================================================
+            if nombre_base_limpio in raids_especiales_dragones:
+                if not dt_obj:
                     continue
                 
-                if nombre_imagen_base in raids_especiales_dragones:
-                    # Regla de los 30 minutos antes para Valakas, Antharas y Fafureon usando la carpeta 'armando'
-                    es_armando = True
-                    minutos_restantes = (dt_obj - ahora_actual).total_seconds() / 60
-                    if not (28.5 <= minutos_restantes <= 30):
+                # Definir fechas clave (Día del raid y Día antes a las 10:00 AM)
+                fecha_raid_dia = dt_obj.date()
+                fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
+                
+                dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
+                dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
+
+                # Validar ejecución para el Día del Raid (+h) a las 10:00 AM
+                diferencia_horas_h = (ahora_actual - dt_10am_dia_raid).total_seconds() / 3600
+                if 0 <= diferencia_horas_h < 1.0: # Ventana de ejecución en la hora de las 10 AM
+                    reg_h = registro.copy()
+                    # Restar 30 minutos a la hora real del raid para la impresión en placa
+                    dt_impresion = dt_obj - timedelta(minutes=30)
+                    reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                    reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
+                    datos_procesados.append(reg_h)
+
+                # Validar ejecución para el Día Antes (+m) a las 10:00 AM
+                diferencia_horas_m = (ahora_actual - dt_10am_dia_antes).total_seconds() / 3600
+                if 0 <= diferencia_horas_m < 1.0: # Ventana de ejecución en la hora de las 10 AM del día previo
+                    reg_m = registro.copy()
+                    dt_impresion = dt_obj - timedelta(minutes=30)
+                    reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                    reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
+                    datos_procesados.append(reg_m)
+
+            else:
+                # Comportamiento normal para el resto de jefes según el filtro
+                if tipo_filtro == "antes":
+                    if es_vivo:
                         continue
-                else:
-                    # Resto de jefes: Comportamiento estándar al comenzar la hora exacta (carpeta 'antes')
                     diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
                     if not (0 <= diferencia_minutos < 1.5):
                         continue
+                elif tipo_filtro == "salio":
+                    if not es_vivo:
+                        continue
 
-            elif tipo_filtro == "salio":
-                # Se dispara estrictamente cuando la página web indique que está VIVO (carpeta 'salio')
-                if not es_vivo:
-                    continue
-            
-            # Definir texto final de hora/estado
-            if es_vivo or tipo_filtro == "salio":
-                registro["tiempo_str_final"] = "VIVO"
-            elif dt_obj:
-                registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-            else:
-                registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
-                
-            registro["nombre_imagen_base"] = nombre_imagen_base
-            registro["es_armando"] = es_armando
-            datos_procesados.append(registro)
+                if es_vivo or tipo_filtro == "salio":
+                    registro["tiempo_str_final"] = "VIVO"
+                elif dt_obj:
+                    registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                else:
+                    registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
+                    
+                registro["nombre_imagen_base"] = nombre_base_limpio
+                datos_procesados.append(registro)
 
         if not datos_procesados:
             logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
@@ -304,19 +290,16 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
         for jefe in datos_procesados:
             nombre_imagen_base = jefe.get("nombre_imagen_base")
             texto_hora = jefe.get("tiempo_str_final", "21:30")
-            es_armando = jefe.get("es_armando", False)
             
-            # Buscar imagen con las carpetas correctas según corresponda
             ruta_imagen = obtener_imagen_raid(
                 catalogo_raids, 
                 nombre_imagen_base, 
                 tema=TEMA_ACTIVO, 
-                tipo_filtro=tipo_filtro, 
-                es_especial_armando=es_armando
+                tipo_filtro=tipo_filtro
             )
             
             if not ruta_imagen:
-                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro}, Armando: {es_armando})")
+                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro})")
                 continue
                 
             img = Image.open(ruta_imagen).convert("RGBA")
@@ -329,7 +312,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             x = POS_X if POS_X is not None else (ancho_img - ancho_texto) / 2
             y = POS_Y if POS_Y is not None else (alto_img - 145)
             
-            # Capa resplandor
+            # Capa resplandor (filtro morado, rojo, etc. usando los colores configurados)
             capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
             draw_resplandor = ImageDraw.Draw(capa_resplandor)
             draw_resplandor.text(
