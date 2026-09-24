@@ -70,7 +70,7 @@ def limpiar_duplicados_por_nombre(lista_jefes):
     """
     GARANTÍA ABSOLUTA: Agrupa por nombre en minúsculas y asegura que 
     exista estrictamente un (1) solo registro por cada jefe.
-    Si hay duplicados, se queda con el más reciente o el último procesado.
+    Si hay duplicados, se queda con el más reciente o el válido.
     """
     if not lista_jefes:
         return []
@@ -81,18 +81,15 @@ def limpiar_duplicados_por_nombre(lista_jefes):
         if not nombre:
             continue
          
-        # Filtramos también por seguridad los que tengan tiempo inválido o "-" si ya tenemos uno válido
         tiempo = str(item.get("tiempo_str", "")).strip()
          
         if nombre not in dict_unicos:
             dict_unicos[nombre] = item
         else:
-            # Si ya existía, priorizamos el que tenga un tiempo válido por encima de un "-"
             tiempo_existente = str(dict_unicos[nombre].get("tiempo_str", "")).strip()
             if tiempo_existente in ["-", "", "None"] and tiempo not in ["-", "", "None"]:
                 dict_unicos[nombre] = item
             elif tiempo not in ["-", "", "None"]:
-                # Si ambos son válidos, actualizamos con el nuevo
                 dict_unicos[nombre] = item
 
     return list(dict_unicos.values())
@@ -266,15 +263,25 @@ def ordenar_y_priorizar(lista_jefes):
 
         return (0 if es_vivo else 1, dt)
 
-    # Aseguramos que antes de ordenar, no pasen duplicados
     lista_limpia = limpiar_duplicados_por_nombre(lista_jefes)
     return sorted(lista_limpia, key=clave_orden)
 
+def obtener_todos_los_jefes_unificados():
+    """
+    CONSOLIDADORA GLOBAL: Une de forma limpia la web (tabla_60_plus, raids, epic) 
+    y los ingresos manuales (horarios_manuales), garantizando que no existan duplicados.
+    """
+    t60 = MEMORIA_JEFES.get("tabla_60_plus", [])
+    traids = MEMORIA_JEFES.get("tabla_raids", [])
+    tepic = MEMORIA_JEFES.get("tabla_epic", [])
+    manuales = MEMORIA_JEFES.get("horarios_manuales", [])
+    
+    return limpiar_duplicados_por_nombre(t60 + traids + tepic + manuales)
+
 def procesar_integracion_y_filtrado():
+    # Integra tabla 60+ con manuales prioritarios para la vista principal
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-     
-    # Fusión limpia previniendo duplicados
     tabla_60_integrada = limpiar_duplicados_por_nombre(tabla_60_base + manuales)
      
     tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
@@ -305,39 +312,31 @@ def procesar_integracion_y_filtrado():
     }
 
 async def disparar_salidas_web(bot_instance):
-    logger.info("🚀 [Web] Procesando salidas web...")
+    logger.info("🚀 [Web] Procesando salidas web consolidadas...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
          
-        todos_los_jefes_unificados = limpiar_duplicados_por_nombre(
-            MEMORIA_JEFES.get("tabla_60_plus", []) + 
-            MEMORIA_JEFES.get("tabla_raids", []) + 
-            MEMORIA_JEFES.get("tabla_epic", []) +
-            MEMORIA_JEFES.get("horarios_manuales", [])
-        )
+        # Usamos la consolidación completa que incluye manuales + web
+        todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Salidas web ejecutadas.")
+        logger.info("✅ Salidas web ejecutadas con éxito.")
     except Exception as e:
         logger.error(f"Error en salidas web: {e}")
 
 async def disparar_salidas_manuales(bot_instance):
-    logger.info("🚀 [Manual] Procesando salidas manuales...")
+    logger.info("🚀 [Manual] Procesando salidas manuales consolidadas...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
          
-        todos_los_jefes_unificados = limpiar_duplicados_por_nombre(
-            MEMORIA_JEFES.get("tabla_60_plus", []) + 
-            MEMORIA_JEFES.get("tabla_raids", []) + 
-            MEMORIA_JEFES.get("tabla_epic", []) +
-            MEMORIA_JEFES.get("horarios_manuales", [])
-        )
+        # Usamos la consolidación completa que incluye manuales + web
+        todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Salidas manuales ejecutadas.")
+        logger.info("✅ Salidas manuales ejecutadas con éxito.")
     except Exception as e:
         logger.error(f"Error en salidas manuales: {e}")
 
@@ -401,8 +400,6 @@ async def on_message(message):
 
                 # 2. Obtener manuales actuales
                 manuales_actuales = MEMORIA_JEFES.get("horarios_manuales", [])
-                
-                # Creamos un diccionario de respaldo de los actuales para proteger datos buenos
                 dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in manuales_actuales}
 
                 # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
@@ -411,18 +408,15 @@ async def on_message(message):
                     nombre_nuevo = str(nuevo.get("nombre", "")).strip().lower()
                     tiempo_nuevo = str(nuevo.get("tiempo_str", "")).strip()
 
-                    # Si el nuevo viene con "-", vacío o "None", revisamos si ya teníamos un horario válido
                     if tiempo_nuevo in ["-", "", "None"]:
                         if nombre_nuevo in dict_actuales:
                             tiempo_viejo = str(dict_actuales[nombre_nuevo].get("tiempo_str", "")).strip()
-                            # Si el que ya teníamos era bueno, conservamos el viejo
                             if tiempo_viejo not in ["-", "", "None"]:
                                 logger.info(f"🛡️ Protección activada: Se ignoró el valor inválido para '{nombre_nuevo}' y se mantiene el horario existente.")
                                 continue
                     
                     registros_depurados.append(nuevo)
 
-                # Combinamos manteniendo los actualizados o nuevos válidos
                 dict_combinado = dict_actuales.copy()
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
