@@ -148,19 +148,17 @@ def obtener_catalogo_imagenes_raid():
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
     if tipo_filtro == "antes":
-        subcarpetas_a_probar = ["antes/"]
+        subcarpetas_a_probar = ["raid/antes/"]
     elif tipo_filtro == "salio":
-        subcarpetas_a_probar = ["salio/"]
+        subcarpetas_a_probar = ["raid/salio/"]
     else:
-        subcarpetas_a_probar = ["armando/", ""]
+        subcarpetas_a_probar = [f"{tema}/"]
 
     for sub in subcarpetas_a_probar:
         for ext in ['.png', '.jpg', '.webp', '.jpeg']:
             claves_intento = [
                 f"{sub}{nombre_base_raid}{ext}",
-                f"raid/{sub}{nombre_base_raid}{ext}",
-                f"{tema}/raid/{sub}{nombre_base_raid}{ext}",
-                f"raid/{tema}/{sub}{nombre_base_raid}{ext}"
+                f"raid/{sub}{nombre_base_raid}{ext}"
             ]
             
             for clave_intento in claves_intento:
