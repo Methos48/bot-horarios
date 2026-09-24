@@ -11,9 +11,10 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
-# CACHÉ DE HISTORIAL EN MEMORIA
+# CACHÉ DE HISTORIAL Y CONTROL DIARIO
 # ==========================================
 HISTORIAL_ENVIADOS_CACHE = {}
+ULTIMO_DIA_LIMPIEZA = None
 
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL
@@ -176,6 +177,17 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 
 
 async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
+    global ULTIMO_DIA_LIMPIEZA
+
+    ahora_actual = datetime.now(ZONA_ARGENTINA)
+
+    # Limpieza automática de caché una vez al día a partir de las 04:00 AM
+    if ULTIMO_DIA_LIMPIEZA != ahora_actual.date():
+        if ahora_actual.hour >= 4:
+            HISTORIAL_ENVIADOS_CACHE.clear()
+            ULTIMO_DIA_LIMPIEZA = ahora_actual.date()
+            logger.info("🧹 Caché de historial de enviados limpiada automáticamente por cambio de día.")
+
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
         nombre_filtro_log = "antes"
@@ -206,7 +218,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             logger.warning("⚠️ El catálogo de imágenes de raid está vacío.")
             return
 
-        ahora_actual = datetime.now(ZONA_ARGENTINA)
         raids_especiales_dragones = {"valakas", "antharas", "fafureon"}
         
         datos_procesados = []
@@ -246,11 +257,9 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 if es_vivo or not dt_obj:
                     continue
                 
-                # Si es un jefe especial random, publica a la hora justa que comienza su random
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     tiempo_objetivo = dt_obj
                 else:
-                    # Los normales publican 10 minutos antes de su hora fija
                     tiempo_objetivo = dt_obj - timedelta(minutes=10)
 
                 diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
@@ -266,7 +275,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             # SERVICIO 2: SALIÓ (Aviso de salida)
             # =========================================================================
             elif tipo_filtro == "salio":
-                # Si es especial random, espera a que la web marque estado VIVO
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
                         clave_id_salio = f"{nombre_base_limpio}_salio_{ahora_actual.strftime('%Y%m%d_%H')}"
@@ -275,7 +283,6 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                             datos_procesados.append(registro)
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
                 else:
-                    # Para los jefes normales, publica exactamente a la hora exacta que trae la tabla
                     if dt_obj:
                         diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
                         clave_id_salio = f"{nombre_base_limpio}_salio_{dt_obj.strftime('%Y%m%d_%H%M')}"
@@ -325,8 +332,9 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                         if 18 <= dt_obj.hour <= 23:
                             fecha_raid_dia = dt_obj.date()
                             
-                            # Validamos que la ejecución ocurra a las 14:00 horas en punto (minuto 0)
-                            if ahora_actual.hour == 14 and ahora_actual.minute == 0:
+                            # Validamos que la ejecución ocurra dentro de la ventana entre las 13:50 y las 14:50
+                            t_actual = ahora_actual.time()
+                            if datetime.strptime("13:50", "%H:%M").time() <= t_actual <= datetime.strptime("14:50", "%H:%M").time():
                                 clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
                                 
                                 if clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
