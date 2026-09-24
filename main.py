@@ -328,7 +328,7 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
     """
     Controlado exclusivamente por entrada_texto y entrada_imagen. Envía:
     - salida_ma: solo VALAKAS, ANTHARAS y FAFUREON de los registros ingresados.
-    - salida_horario: toda la información recibida en los registros ingresados.
+    - salida_horario: toda la información recibida EXCEPTO balrog y electrical.
     """
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
@@ -344,8 +344,16 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
             logger.info("✅ salida_ma ejecutada con éxito.")
 
         if registros_ingresados:
-            await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_ingresados))
-            logger.info("✅ salida_horario ejecutada con éxito.")
+            # 🛑 Excluir balrog y electrical de los registros destinados a salida_horario
+            exclusiones = {"balrog", "electrical", "electrica"}
+            registros_horario = [
+                j for j in registros_ingresados
+                if str(j.get("nombre", "")).strip().lower() not in exclusiones
+            ]
+
+            if registros_horario:
+                await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_horario))
+                logger.info("✅ salida_horario ejecutada con éxito.")
 
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
