@@ -319,13 +319,13 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_limpia, key=clave_orden)
 
 # ==============================================================================
-# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS
+# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Modificado con filtrado de nivel)
 # ==============================================================================
 async def disparar_salidas_por_cambios(bot_instance):
     """
-    Controlado por el ciclo web. Envía:
-    - salida_ronda: vivo_o_muerto + raid_60_plus
-    - salida_low: raid_60_menos
+    Controlado por el ciclo web. Filtra y envía:
+    - salida_ronda: exclusivamente jefes/eventos de nivel 60+ (o especiales/epics de alta categoría)
+    - salida_low: exclusivamente raids de nivel menor a 60
     """
     logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
     try:
@@ -333,12 +333,54 @@ async def disparar_salidas_por_cambios(bot_instance):
         r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
         r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
 
-        datos_ronda = ordenar_y_priorizar(vivo_muerto_ord + r60_plus_ord)
+        # Combinar elementos generales para evaluar el conjunto total de raid 60+
+        datos_ronda_combinados = vivo_muerto_ord + r60_plus_ord
 
-        await salida_ronda.ejecutar(bot_instance, datos_ronda)
-        await salida_low.ejecutar(bot_instance, r60_menos_ord)
+        # Listado ampliado de excepciones o nombres de alto nivel que siempre deben pertenecer a ronda (60+)
+        wh_r60_plus_extra = {
+            "asedio", "p v p", "x9", "x 9", "foto mes", 
+            "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
+            "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"
+        }
+
+        datos_ronda_filtrados = []
+        datos_low_filtrados = []
+
+        # Filtrar elementos para salida_ronda (nivel >= 60 o incluidos en las excepciones de nivel alto)
+        for item in datos_ronda_combinados:
+            nombre = str(item.get("nombre", "")).strip().lower()
+            try:
+                nivel_str = str(item.get("nivel", 85)).strip()
+                nivel = int(nivel_str) if nivel_str else 85
+            except Exception:
+                nivel = 85
+
+            if nombre in wh_r60_plus_extra or nivel >= 60:
+                datos_ronda_filtrados.append(item)
+            else:
+                datos_low_filtrados.append(item)
+
+        # Filtrar también los elementos específicos de raid_60_menos para asegurar que cumplan la regla estricta < 60
+        for item in r60_menos_ord:
+            nombre = str(item.get("nombre", "")).strip().lower()
+            try:
+                nivel_str = str(item.get("nivel", 85)).strip()
+                nivel = int(nivel_str) if nivel_str else 85
+            except Exception:
+                nivel = 85
+
+            if nombre in wh_r60_plus_extra or nivel >= 60:
+                if item not in datos_ronda_filtrados:
+                    datos_ronda_filtrados.append(item)
+            else:
+                if item not in datos_low_filtrados:
+                    datos_low_filtrados.append(item)
+
+        # Ejecutar los módulos de salida correspondientes con los datos debidamente filtrados
+        await salida_ronda.ejecutar(bot_instance, ordenar_y_priorizar(datos_ronda_filtrados))
+        await salida_low.ejecutar(bot_instance, ordenar_y_priorizar(datos_low_filtrados))
         
-        logger.info("✅ Salidas automáticas web ejecutadas con éxito.")
+        logger.info("✅ Salidas automáticas web ejecutadas con éxito (filtrado 60+ y 60- aplicado).")
     except Exception as e:
         logger.error(f"Error al disparar salidas web: {e}")
 
@@ -394,7 +436,6 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            # entrada_pagina alimenta las tres tablas de forma independiente
             nuevos_r60_plus_web, nuevos_r60_menos = clasificar_y_distribuir_items_web(t1 + t2)
             nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
 
@@ -402,7 +443,6 @@ async def auto_monitor_web():
             vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
             vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
               
-            # Fusionar datos web de 60+ preservando ingresos manuales previos en raid_60_plus
             dict_r60_plus_actual = {str(i.get("nombre","")).lower(): i for i in vieja_r60_plus}
             for item in nuevos_r60_plus_web:
                 dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
@@ -446,14 +486,11 @@ async def on_message(message):
                     pass
 
             if nuevos_registros:
-                # 1. Asignar niveles personalizados o dejarlos en blanco para eventos especiales
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                # 2. Obtener la tabla actual de raid_60_plus
                 actuales_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
                 dict_actuales_r60 = {str(item.get("nombre", "")).strip().lower(): item for item in actuales_r60_plus}
 
-                # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
                 registros_depurados = []
                 for nuevo in nuevos_registros:
                     nombre_nuevo = str(nuevo.get("nombre", "")).strip().lower()
@@ -468,7 +505,6 @@ async def on_message(message):
                     
                     registros_depurados.append(nuevo)
 
-                # 4. Enviar TODO lo procesado por texto/imagen exclusivamente a raid_60_plus
                 dict_combinado = dict_actuales_r60.copy()
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
@@ -480,7 +516,6 @@ async def on_message(message):
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                
-                # Ejecutar salidas manuales y de ronda
                 await disparar_salidas_manuales(bot, nuevos_registros)
                 await disparar_salidas_por_cambios(bot)
 
