@@ -25,22 +25,22 @@ def _es_jefe_especial(nombre):
 
 def _es_epico_o_superior(nombre):
     """
-    Define cuáles jefes son los únicos que pueden pasar a estado VIVO automáticamente 
-    cuando llega su hora, limitando las excepciones estrictamente.
+    Define cuáles jefes/eventos son los únicos que pueden pasar a estado VIVO automáticamente 
+    cuando llega su hora.
     """
     if not nombre:
         return False
     n_lower = nombre.lower().strip()
     
     # Excepciones estrictas permitidas para activar VIVO automáticamente
-    excepciones_exactas = ["core", "orfen", "queen ant", "zaken"]
-    return n_lower in excepciones_exactas or any(esp in n_lower for esp in ["valakas", "antharas", "fafurion", "fafureon", "baium", "frintezza", "freya", "zariche"])
+    excepciones_exactas = ["core", "orfen", "queen ant", "zaken", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    return any(exc in n_lower for exc in excepciones_exactas) or any(esp in n_lower for esp in ["valakas", "antharas", "fafurion", "fafureon", "baium", "frintezza", "freya", "zariche"])
 
 def _filtrar_y_clasificar(jefe):
     """
     Filtra la lista estrictamente:
     - Solo nivel 60+ 
-    - Excepciones estrictas permitidas por nombre exacto: Zaken, Core, Orfen, Queen Ant.
+    - Excepciones permitidas sin nivel o especiales: Zaken, Core, Orfen, Queen Ant, Asedio, P V P, X9, X 9, Foto Mes.
     """
     nombre = jefe.get("nombre", "").strip()
     n_lower = nombre.lower()
@@ -48,9 +48,13 @@ def _filtrar_y_clasificar(jefe):
     if "orfen's handmaiden" in n_lower or "orfens handmaiden" in n_lower:
         return False
     
-    # Lista estricta de nombres exactos permitidos por debajo de nivel 60
-    nombres_exactos_permitidos = ["zaken", "core", "orfen", "queen ant"]
-    es_excepcion_exacta = n_lower in nombres_exactos_permitidos
+    # Lista estricta de excepciones permitidas (épicos y eventos sin nivel)
+    excepciones_permitidas = [
+        "zaken", "core", "orfen", "queen ant", 
+        "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"
+    ]
+    
+    es_excepcion = any(exc in n_lower for exc in excepciones_permitidas)
     
     nivel_raw = jefe.get("nivel", 0)
     nivel = 0
@@ -63,8 +67,8 @@ def _filtrar_y_clasificar(jefe):
     except Exception:
         nivel = 0
     
-    # Condición final: O es nivel 60 o más, o es una de las excepciones exactas permitidas
-    if nivel >= 60 or es_excepcion_exacta:
+    # Condición final: O es nivel 60 o más, o entra en las excepciones permitidas
+    if nivel >= 60 or es_excepcion:
         return True
     return False
 
@@ -81,8 +85,8 @@ def _obtener_color_hora(nombre, es_vivo):
     if n_lower in rojos_exactos:
         return _hex_a_rgb("#FF0000")
 
-    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant"]
-    if n_lower in azules_exactos:
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    if any(azul in n_lower for azul in azules_exactos):
         return _hex_a_rgb("#4D93D9")
 
     return _hex_a_rgb("#40A309")
@@ -104,8 +108,8 @@ def _obtener_color_fila_entera(nombre):
     if n_lower in verdes_exactos:
         return True, _hex_a_rgb("#40A309")
 
-    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant"]
-    if n_lower in azules_exactos:
+    azules_exactos = ["core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes"]
+    if any(azul in n_lower for azul in azules_exactos):
         return True, _hex_a_rgb("#4D93D9")
 
     return False, None
@@ -114,7 +118,7 @@ async def ejecutar(bot_instance, datos_horario):
     """
     Función principal llamada desde main.py
     """
-    logger.info("⚙️ Ejecutando salida_ronda: Procesando filtros y lógica condicional para épicos...")
+    logger.info("⚙️ Ejecutando salida_ronda: Procesando filtros y lógica condicional para épicos y eventos...")
     
     canal_id = getattr(config, "RONDA_CHANNEL_ID", None)
     ruta_plantilla = getattr(config, "PLANTILLA_RONDA", None)
@@ -294,7 +298,7 @@ async def ejecutar(bot_instance, datos_horario):
         archivo_discord = discord.File(nombre_archivo_salida, filename="horario_ronda.png")
         await channel.send(file=archivo_discord)
         
-        logger.info("✅ Imagen de salida_ronda generada correctamente aplicando filtro estricto de nivel 60+.")
+        logger.info("✅ Imagen de salida_ronda generada correctamente incluyendo eventos y nivel 60+.")
 
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_ronda: {e}")
