@@ -351,7 +351,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             img = Image.open(ruta_imagen).convert("RGBA")
             ancho_img, alto_img = img.size
 
-            # Si es "antes" o "salio", enviamos la imagen directamente sin alterar
+            # PROTECCIÓN ABSOLUTA: Si el filtro es "antes" o "salio", guardamos y enviamos la imagen limpia DIRECTAMENTE
             if tipo_filtro in ["antes", "salio"]:
                 ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
                 img.convert("RGB").save(ruta_temporal, "PNG")
