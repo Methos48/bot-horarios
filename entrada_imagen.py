@@ -115,7 +115,8 @@ def _parsear_texto_crudo(texto_crudo):
     lineas = texto_crudo.strip().split('\n')
     registros = []
     zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
-    año_actual = datetime.now(zona_actual).year
+    ahora_local = datetime.now(zona_actual)
+    año_actual = ahora_local.year
 
     for linea in lineas:
         linea = linea.strip()
@@ -150,8 +151,10 @@ def _parsear_texto_crudo(texto_crudo):
         if not match_hora:
             match_hora_simple = re.search(r'(?:entre\s+)?(\d{1,2})', resto, re.IGNORECASE)
             hora_str = f"{match_hora_simple.group(1).zfill(2)}:00" if match_hora_simple else "00:00"
+            tiene_tiempo = bool(match_hora_simple)
         else:
             hora_str = f"{match_hora.group(1).zfill(2)}:{match_hora.group(2)}"
+            tiene_tiempo = True
 
         if match_fecha:
             dia = int(match_fecha.group(1))
@@ -162,6 +165,15 @@ def _parsear_texto_crudo(texto_crudo):
                 dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
             except ValueError:
                 dt = datetime.max.replace(tzinfo=zona_actual)
+        elif tiene_tiempo and not es_vivo:
+            # Si hay hora pero no fecha explícita, asumimos el día de hoy
+            try:
+                h, m = map(int, hora_str.split(':'))
+                dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
+                tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                dt = datetime.max.replace(tzinfo=zona_actual)
+                tiempo_str_estandar = "-"
         else:
             dt = datetime.max.replace(tzinfo=zona_actual)
             tiempo_str_estandar = "-"
