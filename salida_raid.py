@@ -229,30 +229,28 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 continue
 
             # =========================================================================
-            # SERVICIO 1: ANTES (Independiente)
+            # SERVICIO 1: ANTES (Envía la imagen limpia sin estampar hora)
             # =========================================================================
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
                 diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
                 if 0 <= diferencia_minutos < 1.5:
-                    registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                     registro["nombre_imagen_base"] = nombre_base_limpio
                     datos_procesados.append(registro)
                 continue
 
             # =========================================================================
-            # SERVICIO 2: SALIÓ (Independiente)
+            # SERVICIO 2: SALIÓ (Envía la imagen limpia sin estampar hora)
             # =========================================================================
             elif tipo_filtro == "salio":
                 if es_vivo:
-                    registro["tiempo_str_final"] = "VIVO"
                     registro["nombre_imagen_base"] = nombre_base_limpio
                     datos_procesados.append(registro)
                 continue
 
             # =========================================================================
-            # SERVICIO 3: PRINCIPAL / RAIDS (Con reglas horarias especiales y dragones)
+            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID (Este sí estampa la hora)
             # =========================================================================
             else:
                 if nombre_base_limpio in raids_especiales_dragones:
@@ -308,17 +306,16 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
             logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
             return
 
-        # 3. CARGA DE FUENTE BANKGOTHIC
+        # 3. CARGA DE FUENTE BANKGOTHIC (Solo necesaria para el modo principal)
         try:
             font_hora = ImageFont.truetype(fuente_bankgothic, 150) if fuente_bankgothic else ImageFont.load_default()
         except Exception as font_err:
             logger.warning(f"⚠️ No se pudo cargar BankGothic, usando predeterminada: {font_err}")
             font_hora = ImageFont.load_default()
 
-        # 4. PROCESAMIENTO DE IMAGEN, ESTAMPADO Y ENVÍO A DISCORD
+        # 4. PROCESAMIENTO DE IMAGEN Y ENVÍO A DISCORD
         for jefe in datos_procesados:
             nombre_imagen_base = jefe.get("nombre_imagen_base")
-            texto_hora = jefe.get("tiempo_str_final", "21:30")
             
             ruta_imagen = obtener_imagen_raid(
                 catalogo_raids, 
@@ -333,6 +330,21 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 
             img = Image.open(ruta_imagen).convert("RGBA")
             ancho_img, alto_img = img.size
+
+            # Si es "antes" o "salio", enviamos la imagen directamente sin alterar
+            if tipo_filtro in ["antes", "salio"]:
+                ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
+                img.convert("RGB").save(ruta_temporal, "PNG")
+                
+                archivo_discord = discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png")
+                await channel.send(file=archivo_discord)
+                
+                if os.path.exists(ruta_temporal):
+                    os.remove(ruta_temporal)
+                continue
+
+            # Para el filtro principal, aplicamos el estampado de hora habitual
+            texto_hora = jefe.get("tiempo_str_final", "21:30")
             
             draw_temp = ImageDraw.Draw(img)
             bbox = draw_temp.textbbox((0, 0), texto_hora, font=font_hora)
