@@ -74,16 +74,16 @@ def limpiar_duplicados_por_nombre(lista_jefes):
     """
     if not lista_jefes:
         return []
-    
+     
     dict_unicos = {}
     for item in lista_jefes:
         nombre = str(item.get("nombre", "")).strip().lower()
         if not nombre:
             continue
-        
+         
         # Filtramos también por seguridad los que tengan tiempo inválido o "-" si ya tenemos uno válido
         tiempo = str(item.get("tiempo_str", "")).strip()
-        
+         
         if nombre not in dict_unicos:
             dict_unicos[nombre] = item
         else:
@@ -174,7 +174,7 @@ def aplicar_offset_web(lista_jefes, offset_horas):
         item_copia = item.copy()
         dt = item_copia.get("datetime")
         tiempo_str = item_copia.get("tiempo_str", "").strip()
-        
+         
         if tiempo_str.upper() in ["VIVO", "ALIVE", "-"]:
             lista_modificada.append(item_copia)
             continue
@@ -273,7 +273,7 @@ def ordenar_y_priorizar(lista_jefes):
 def procesar_integracion_y_filtrado():
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-    
+     
     # Fusión limpia previniendo duplicados
     tabla_60_integrada = limpiar_duplicados_por_nombre(tabla_60_base + manuales)
      
@@ -399,17 +399,41 @@ async def on_message(message):
                 # 1. Asignar niveles
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                # 2. Obtener manuales actuales y fusionar con los nuevos
+                # 2. Obtener manuales actuales
                 manuales_actuales = MEMORIA_JEFES.get("horarios_manuales", [])
                 
-                # Combinamos ambas listas
-                lista_combinada = manuales_actuales + nuevos_registros
+                # Creamos un diccionario de respaldo de los actuales para proteger datos buenos
+                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in manuales_actuales}
 
-                # 3. APLICAR LIMPIEZA GLOBAL DE DUPLICADOS POR NOMBRE (Garantiza 1 solo registro por jefe)
-                MEMORIA_JEFES["horarios_manuales"] = limpiar_duplicados_por_nombre(lista_combinada)
+                # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
+                registros_depurados = []
+                for nuevo in nuevos_registros:
+                    nombre_nuevo = str(nuevo.get("nombre", "")).strip().lower()
+                    tiempo_nuevo = str(nuevo.get("tiempo_str", "")).strip()
+
+                    # Si el nuevo viene con "-", vacío o "None", revisamos si ya teníamos un horario válido
+                    if tiempo_nuevo in ["-", "", "None"]:
+                        if nombre_nuevo in dict_actuales:
+                            tiempo_viejo = str(dict_actuales[nombre_nuevo].get("tiempo_str", "")).strip()
+                            # Si el que ya teníamos era bueno, conservamos el viejo
+                            if tiempo_viejo not in ["-", "", "None"]:
+                                logger.info(f"🛡️ Protección activada: Se ignoró el valor inválido para '{nombre_nuevo}' y se mantiene el horario existente.")
+                                continue
+                    
+                    registros_depurados.append(nuevo)
+
+                # Combinamos manteniendo los actualizados o nuevos válidos
+                dict_combinado = dict_actuales.copy()
+                for reg in registros_depurados:
+                    nombre = str(reg.get("nombre", "")).strip().lower()
+                    if nombre:
+                        dict_combinado[nombre] = reg
+
+                # 4. APLICAR LIMPIEZA GLOBAL DE DUPLICADOS POR NOMBRE
+                MEMORIA_JEFES["horarios_manuales"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
 
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria actualizada sin duplicados. Total manuales únicos: {len(MEMORIA_JEFES['horarios_manuales'])}")
+                logger.info(f"💾 Memoria actualizada de forma segura. Total manuales únicos: {len(MEMORIA_JEFES['horarios_manuales'])}")
                  
                 await disparar_salidas_manuales(bot)
 
