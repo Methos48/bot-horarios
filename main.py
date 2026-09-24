@@ -32,10 +32,6 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 
 # ==============================================================================
 # ⚙️ CONFIGURACIÓN DE OFFSET WEB (Ajuste de hora para la página web)
-# Modifica este número a voluntad:
-#   - 0 (cero): Deja la hora de la página tal cual está.
-#   - Positivo (ej. 1, 2): Suma horas para adelantar el reloj.
-#   - Negativo (ej. -1, -2): Resta horas para atrasar el reloj.
 # ==============================================================================
 HORA_OFFSET_WEB = 1
 
@@ -61,13 +57,11 @@ def asignar_nivel_manual(lista_jefes):
     """Asigna el nivel correspondiente a cada jefe manual basándose en su nombre."""
     for item in lista_jefes:
         nombre_limpio = item.get("nombre", "").strip().lower()
-        # Buscar coincidencia exacta o parcial en el diccionario
         for clave, nivel in NIVELES_JEFE_MANUAL.items():
             if clave in nombre_limpio:
                 item["nivel"] = nivel
                 break
         else:
-            # Valor por defecto si no está en la lista
             if "nivel" not in item:
                 item["nivel"] = 85
     return lista_jefes
@@ -145,7 +139,7 @@ def guardar_memoria_a_json_completa():
         logger.error(f"Error al guardar memoria completa en JSON: {e}")
 
 def aplicar_offset_web(lista_jefes, offset_horas):
-    """Aplica el desplazamiento de horas (positivo, negativo o cero) configurado en HORA_OFFSET_WEB."""
+    """Aplica el desplazamiento de horas configurado exclusivamente a la data web."""
     if offset_horas == 0 or not lista_jefes:
         return lista_jefes
      
@@ -155,20 +149,15 @@ def aplicar_offset_web(lista_jefes, offset_horas):
         dt = item_copia.get("datetime")
         tiempo_str = item_copia.get("tiempo_str", "").strip()
         
-        # Si el jefe está vivo o sin hora, se respeta tal cual
         if tiempo_str.upper() in ["VIVO", "ALIVE", "-"]:
             lista_modificada.append(item_copia)
             continue
 
         dt_ajustado = None
-
-        # 1. Ajustar el datetime existente si es válido
         if dt and isinstance(dt, datetime) and (1900 < dt.year < 9999):
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZONA_ARGENTINA)
             dt_ajustado = dt + timedelta(hours=offset_horas)
-        
-        # 2. Si no hay datetime pero hay texto de hora/fecha, parsearlo y ajustarlo
         elif tiempo_str:
             try:
                 if ":" in tiempo_str and len(tiempo_str) <= 5:
@@ -181,7 +170,6 @@ def aplicar_offset_web(lista_jefes, offset_horas):
             except Exception as e:
                 logger.warning(f"No se pudo parsear el tiempo_str '{tiempo_str}' para aplicar offset: {e}")
 
-        # 3. Consolidar los cambios en el item copiado
         if dt_ajustado:
             item_copia["datetime"] = dt_ajustado
             if len(tiempo_str) <= 5 and ":" in tiempo_str:
@@ -193,7 +181,7 @@ def aplicar_offset_web(lista_jefes, offset_horas):
     return lista_modificada
 
 def listas_han_cambiado(lista_vieja, lista_nueva):
-    """Compara dos listas de jefes para detectar si hubo cambios en estado, nivel o tiempo."""
+    """Compara dos listas de jefes para detectar si hubo cambios."""
     if len(lista_vieja) != len(lista_nueva):
         return True
     dict_viejo = {j.get("nombre", "").lower(): j for j in lista_vieja}
@@ -214,7 +202,6 @@ def listas_han_cambiado(lista_vieja, lista_nueva):
 # --- MEMORIA EN TIEMPO REAL INICIALIZADA DESDE JSON ---
 MEMORIA_JEFES = cargar_memoria_desde_json()
 
-# Inicializar Flask para mantener vivo el contenedor (Healthcheck / Uptime)
 app = Flask('')
 
 @app.route('/')
@@ -231,7 +218,6 @@ def keep_alive():
     t.start()
     logger.info("Servidor Flask web (keep_alive) iniciado en el puerto 8080.")
 
-# Configurar intents de Discord
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -239,11 +225,6 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def ordenar_y_priorizar(lista_jefes):
-    """
-    Ordena una lista de diccionarios de jefes considerando hora de Argentina:
-    1. Primero los que están 'Alive' o 'Vivo'.
-    2. Luego cronológicamente por fecha/hora (lo más cercano arriba).
-    """
     if not lista_jefes:
         return []
 
@@ -264,10 +245,6 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_jefes, key=clave_orden)
 
 def procesar_integracion_y_filtrado():
-    """
-    Integrar lista 60+, tabla de raids, epic bosses y manuales,
-    ordenando las tablas con criterio argentino y aplicando filtros.
-    """
     tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
     manuales = MEMORIA_JEFES.get("horarios_manuales", [])
     tabla_60_integrada = tabla_60_base + manuales
@@ -300,14 +277,12 @@ def procesar_integracion_y_filtrado():
     }
 
 async def disparar_salidas_web(bot_instance):
-    """Despacha las salidas web y entrega toda la información unificada a salida_raid para su evaluación interna."""
-    logger.info("🚀 [Web] Procesando y enviando datos a salida_low, salida_ronda y salida_raid...")
+    logger.info("🚀 [Web] Procesando y enviando datos a salidas web...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
          
-        # Unificamos todas las listas de la memoria para dárselas por completo a salida_raid
         todos_los_jefes_unificados = (
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
             MEMORIA_JEFES.get("tabla_raids", []) + 
@@ -315,21 +290,18 @@ async def disparar_salidas_web(bot_instance):
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-         
         logger.info("✅ Servicios de salida web ejecutados con éxito.")
     except Exception as e:
-        logger.error(f"Error al despachar los servicios de salida web: {e}")
+        logger.error(f"Error al despachar salidas web: {e}")
 
 async def disparar_salidas_manuales(bot_instance):
-    """Despacha únicamente las salidas asignadas a entrada_imagen.py o entrada_texto.py."""
-    logger.info("🚀 [Manual] Procesando y enviando datos filtrados a horario, ma, ronda y raid...")
+    logger.info("🚀 [Manual] Procesando y enviando datos a salidas manuales...")
     try:
         datos_procesados = procesar_integracion_y_filtrado()
         await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
          
-        # Unificamos todas las listas también para las salidas manuales
         todos_los_jefes_unificados = (
             MEMORIA_JEFES.get("tabla_60_plus", []) + 
             MEMORIA_JEFES.get("tabla_raids", []) + 
@@ -337,23 +309,20 @@ async def disparar_salidas_manuales(bot_instance):
             MEMORIA_JEFES.get("horarios_manuales", [])
         )
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-         
         logger.info("✅ Servicios de salida manual ejecutados con éxito.")
     except Exception as e:
-        logger.error(f"Error al despachar los servicios de salida manuales: {e}")
+        logger.error(f"Error al despachar salidas manuales: {e}")
 
 @bot.event
 async def on_ready():
     hora_actual_arg = datetime.now(ZONA_ARGENTINA).strftime('%Y-%m-%d %H:%M:%S')
     logger.info(f"¡Bot conectado exitosamente como {bot.user}!")
     logger.info(f"⏰ Hora actual del sistema (Argentina): {hora_actual_arg}")
-    logger.info(f"⚙️ Offset aplicado a listas web (entrada_pagina): {HORA_OFFSET_WEB} hora(s)")
-    logger.info("Sistema operando completamente en memoria y JSON bajo zona horaria de Argentina.")
+    logger.info(f"⚙️ Offset aplicado a listas web: {HORA_OFFSET_WEB} hora(s)")
      
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
 
-# Tarea automática en segundo plano (cada 60 segundos) - Viene de entrada_pagina.py
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
     logger.info("🔍 [Automático] Rastreando la página web de los jefes...")
@@ -361,7 +330,6 @@ async def auto_monitor_web():
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
         t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
           
-        # Aplicamos el offset de inmediato a la data cruda de entrada_pagina
         t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
         t2 = aplicar_offset_web(t2_crudo, HORA_OFFSET_WEB)
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
@@ -380,21 +348,17 @@ async def auto_monitor_web():
                 MEMORIA_JEFES["tabla_raids"] = t2
                 MEMORIA_JEFES["tabla_epic"] = t_epic
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria y JSON actualizados por cambios (Web con offset {HORA_OFFSET_WEB}h): Tabla 60+ ({len(t1)}) | Raids ({len(t2)}) | Epic Bosses ({len(t_epic)})")
-                  
+                logger.info(f"💾 Memoria y JSON actualizados por cambios web.")
                 await disparar_salidas_web(bot)
             else:
-                logger.info("🔍 [Automático] No se detectaron cambios en los jefes de la web.")
-          
+                logger.info("🔍 [Automático] No se detectaron cambios en la web.")
     except Exception as e:
         logger.error(f"Error en el monitoreo web automático: {e}")
 
 @auto_monitor_web.before_loop
 async def before_auto_monitor():
     await bot.wait_until_ready()
-    logger.info("⏳ Esperando a que el sistema esté listo para arrancar el rastreo web...")
 
-# Escucha de mensajes en el canal de carga de horarios (Texto o Imágenes)
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -402,42 +366,52 @@ async def on_message(message):
 
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
         try:
-            horarios_procesados = []
+            nuevos_registros = []
 
-            # 1. CASO IMAGEN: Delega a entrada_imagen.py (procesamiento asíncrono y borrado interno)
             if message.attachments:
-                logger.info("🖼️ Adjunto(s) detectado(s) en el canal de carga. Procesando con entrada_imagen...")
-                horarios_procesados = await entrada_imagen.procesar_mensaje_imagenes(message)
-
-            # 2. CASO TEXTO: Delega a entrada_texto.py
+                logger.info("🖼️ Adjunto(s) detectado(s). Procesando con entrada_imagen...")
+                nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
-                logger.info("📥 Bloque de texto detectado en el canal de carga. Procesando con entrada_texto...")
-                horarios_procesados = entrada_texto.procesar_y_ordenar_texto(message.content)
-                # Borrado del mensaje de texto original tras procesarlo
+                logger.info("📥 Bloque de texto detectado. Procesando con entrada_texto...")
+                nuevos_registros = entrada_texto.procesar_y_ordenar_texto(message.content)
                 try:
                     await message.delete()
-                    logger.info("🗑️ Mensaje de texto original eliminado limpiamente del canal.")
+                    logger.info("🗑️ Mensaje de texto original eliminado limpiamente.")
                 except Exception as e:
                     logger.error(f"No se pudo eliminar el mensaje de texto original: {e}")
 
-            if horarios_procesados:
-                # Asignar los niveles correspondientes antes de guardar en memoria
-                horarios_procesados = asignar_nivel_manual(horarios_procesados)
+            if nuevos_registros:
+                # 1. Asignar niveles correspondientes a los nuevos registros
+                nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                MEMORIA_JEFES["horarios_manuales"] = horarios_procesados
+                # 2. FUSIÓN INTELIGENTE (Anti-duplicados por nombre)
+                # Obtenemos los manuales actuales en memoria
+                manuales_actuales = MEMORIA_JEFES.get("horarios_manuales", [])
+                
+                # Creamos un diccionario indexado por el nombre del jefe en minúsculas
+                dict_manuales = {j.get("nombre", "").strip().lower(): j for j in manuales_actuales}
+
+                # Actualizamos o insertamos los nuevos registros sin duplicar
+                for item in nuevos_registros:
+                    nombre_clave = item.get("nombre", "").strip().lower()
+                    if nombre_clave:
+                        dict_manuales[nombre_clave] = item  # Si ya existe, se pisará con el nuevo horario actualizado; si no, se agrega
+
+                # Convertimos de nuevo a lista limpia
+                MEMORIA_JEFES["horarios_manuales"] = list(dict_manuales.values())
+
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria y JSON actualizados (Entrada Manual): {len(horarios_procesados)} registros cargados con sus niveles.")
+                logger.info(f"💾 Memoria y JSON actualizados (Entradas Manuales sin duplicados). Total registros manuales: {len(MEMORIA_JEFES['horarios_manuales'])}")
                  
                 await disparar_salidas_manuales(bot)
 
         except Exception as e:
-            logger.error(f"Error procesando la entrada manual en el canal de carga: {e}")
+            logger.error(f"Error procesando la entrada manual: {e}")
 
     await bot.process_commands(message)
 
 if __name__ == "__main__":
     keep_alive()
-     
     if config.DISCORD_TOKEN:
         bot.run(config.DISCORD_TOKEN)
     else:
