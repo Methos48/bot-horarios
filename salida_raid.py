@@ -11,7 +11,7 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL rojo, morado, navidad
+# CONFIGURACIÓN DE TEMA / ESTILO VISUAL
 # ==========================================
 TEMA_ACTIVO = "rojo"
 
@@ -24,7 +24,7 @@ POS_Y = 565
 # ==========================================
 # FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
 # ==========================================
-# 1. Filtro original / predeterminado
+# 1. Filtro original / predeterminado (al comenzar la hora exacta del random -> imagen/raid/antes/)
 FILTRO_PUBLICAR_RAIDS = {
     "Valakas": "si",
     "Antharas": "si",
@@ -49,11 +49,11 @@ FILTRO_PUBLICAR_RAIDS = {
     "otros_60_menos": "no"
 }
 
-# 2. Segundo filtro ("antes" - se evaluará justo al comenzar la hora exacta)
+# 2. Segundo filtro ("antes" - 30 minutos antes del inicio -> imagen/raid/armando/)
 FILTRO_PUBLICAR_RAIDS_ANTES = {
-    "Valakas": "no",
-    "Antharas": "no",
-    "Fafureon": "no",
+    "Valakas": "si",
+    "Antharas": "si",
+    "Fafureon": "si",
     "Balrog": "no",
     "Electrical": "no",
     "Baium": "no",
@@ -74,11 +74,11 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
     "otros_60_menos": "no"
 }
 
-# 3. Tercer filtro ("salio" - se evaluará estrictamente cuando la web indique VIVO)
+# 3. Tercer filtro ("salio" - estrictamente cuando la web indique VIVO -> imagen/raid/salio/)
 FILTRO_PUBLICAR_RAIDS_SALIO = {
-    "Valakas": "no",
-    "Antharas": "no",
-    "Fafureon": "no",
+    "Valakas": "si",
+    "Antharas": "si",
+    "Fafureon": "si",
     "Balrog": "no",
     "Electrical": "no",
     "Baium": "no",
@@ -150,42 +150,41 @@ def obtener_catalogo_imagenes_raid():
     return catalogo
 
 
-def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
+def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal", es_especial_armando=False):
     """
-    Busca la imagen del raid en la subcarpeta correspondiente según el filtro:
-    - 'antes' -> {tema}/raid/antes/{nombre}{ext}
-    - 'salio' -> {tema}/raid/salio/{nombre}{ext}
-    - 'principal' (o por defecto) -> {tema}/raid/{nombre}{ext}
+    Busca la imagen del raid en la subcarpeta correspondiente:
+    - Si es 'armando' (30 min antes para los 3 dragones) -> {tema}/raid/armando/{nombre}{ext}
+    - Si es 'antes' (random exacto) -> {tema}/raid/antes/{nombre}{ext}
+    - Si es 'salio' (estado VIVO) -> {tema}/raid/salio/{nombre}{ext}
+    - Respaldo general -> {tema}/raid/{nombre}{ext}
     """
-    subcarpeta_filtro = ""
-    if tipo_filtro == "antes":
-        subcarpeta_filtro = "antes/"
-    elif tipo_filtro == "salio":
-        subcarpeta_filtro = "salio/"
+    subcarpetas_a_probar = []
 
-    for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-        # Intenta buscar en la subcarpeta específica del filtro
-        clave_intento = f"{tema}/raid/{subcarpeta_filtro}{nombre_base_raid}{ext}"
-        if clave_intento in catalogo:
-            return catalogo[clave_intento]
-            
-    # Si no la encuentra en la subcarpeta específica, busca en la raíz del tema como respaldo
-    if subcarpeta_filtro != "":
+    if es_especial_armando:
+        subcarpetas_a_probar.append("armando/")
+
+    if tipo_filtro == "antes":
+        subcarpetas_a_probar.append("antes/")
+    elif tipo_filtro == "salio":
+        subcarpetas_a_probar.append("salio/")
+    
+    # Respaldo por defecto
+    subcarpetas_a_probar.append("")
+
+    for sub in subcarpetas_a_probar:
         for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-            clave_respaldo = f"{tema}/raid/{nombre_base_raid}{ext}"
-            if clave_respaldo in catalogo:
-                return catalogo[clave_respaldo]
+            # Nota: Construye la ruta considerando la estructura solicitada ej: imagen/raid/{tema}/raid/armando/...
+            # Dependiendo de cómo guardes tu catálogo, se busca con la estructura interna del tema.
+            clave_intento = f"{tema}/raid/{sub}{nombre_base_raid}{ext}"
+            if clave_intento in catalogo:
+                return catalogo[clave_intento]
 
     return None
 
 
 async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
     """
-    Función principal:
-    - Recibe todas las listas de jefes globales.
-    - Filtra qué jefes deben imprimirse según el tipo de filtro solicitado ('principal', 'antes', 'salio').
-    - 'antes': Se dispara justo al comenzar la hora exacta del rango.
-    - 'salio': Se dispara exclusivamente cuando la página web indica que está VIVO.
+    Función principal de ejecución dividida por filtros y lógica temporal.
     """
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
@@ -223,6 +222,8 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
         nombres_procesados = set()
         ahora_actual = datetime.now(ZONA_ARGENTINA)
 
+        raids_especiales_dragones = {"valakas", "antharas", "fafureon"}
+
         for jefe in datos_horario:
             nombre_jefe = jefe.get("nombre", jefe.get("nombre_imagen", ""))
             nivel_jefe = jefe.get("nivel", None)
@@ -252,17 +253,27 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 except ValueError:
                     pass
 
+            es_armando = False
+
             # APLICAR LÓGICA DE TIEMPO SEGÚN EL TIPO DE FILTRO
             if tipo_filtro == "antes":
-                # Se dispara justo al comenzar la hora exacta del rango (entre 0 y 1.5 minutos pasados)
                 if es_vivo or not dt_obj:
                     continue
-                diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
-                if not (0 <= diferencia_minutos < 1.5):
-                    continue
+                
+                if nombre_imagen_base in raids_especiales_dragones:
+                    # Regla de los 30 minutos antes para Valakas, Antharas y Fafureon usando la carpeta 'armando'
+                    es_armando = True
+                    minutos_restantes = (dt_obj - ahora_actual).total_seconds() / 60
+                    if not (28.5 <= minutos_restantes <= 30):
+                        continue
+                else:
+                    # Resto de jefes: Comportamiento estándar al comenzar la hora exacta (carpeta 'antes')
+                    diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
+                    if not (0 <= diferencia_minutos < 1.5):
+                        continue
 
             elif tipo_filtro == "salio":
-                # Se dispara estrictamente cuando la página web indique que está VIVO
+                # Se dispara estrictamente cuando la página web indique que está VIVO (carpeta 'salio')
                 if not es_vivo:
                     continue
             
@@ -275,6 +286,7 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
                 registro["tiempo_str_final"] = tiempo_str[-5:] if len(tiempo_str) >= 5 else tiempo_str
                 
             registro["nombre_imagen_base"] = nombre_imagen_base
+            registro["es_armando"] = es_armando
             datos_procesados.append(registro)
 
         if not datos_procesados:
@@ -292,12 +304,19 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
         for jefe in datos_procesados:
             nombre_imagen_base = jefe.get("nombre_imagen_base")
             texto_hora = jefe.get("tiempo_str_final", "21:30")
+            es_armando = jefe.get("es_armando", False)
             
-            # Buscar imagen pasando el tipo de filtro actual para que elija la subcarpeta correcta
-            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
+            # Buscar imagen con las carpetas correctas según corresponda
+            ruta_imagen = obtener_imagen_raid(
+                catalogo_raids, 
+                nombre_imagen_base, 
+                tema=TEMA_ACTIVO, 
+                tipo_filtro=tipo_filtro, 
+                es_especial_armando=es_armando
+            )
             
             if not ruta_imagen:
-                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro})")
+                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro}, Armando: {es_armando})")
                 continue
                 
             img = Image.open(ruta_imagen).convert("RGBA")
