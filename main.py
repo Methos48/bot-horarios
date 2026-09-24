@@ -53,6 +53,12 @@ NIVELES_JEFE_MANUAL = {
     "electrical": 85
 }
 
+# Lista blanca estricta para forzar dentro de raid_60_plus independientemente de su nivel numérico
+WH_RAID_60_PLUS_EXTRA = {
+    "asedio", "p v p", "x9", "x 9", "foto mes", 
+    "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica"
+}
+
 def asignar_nivel_manual(lista_jefes):
     """Asigna el nivel correspondiente a cada jefe manual basándose en su nombre."""
     for item in lista_jefes:
@@ -70,7 +76,6 @@ def limpiar_duplicados_por_nombre(lista_jefes):
     """
     GARANTÍA ABSOLUTA: Agrupa por nombre en minúsculas y asegura que 
     exista estrictamente un (1) solo registro por cada jefe.
-    Si hay duplicados, se queda con el más reciente o el válido.
     """
     if not lista_jefes:
         return []
@@ -128,39 +133,70 @@ def cargar_memoria_desde_json():
         try:
             with open(ARCHIVO_JSON, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                t1 = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_60_plus", [])])
-                t2 = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_raids", [])])
-                t_epic = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("tabla_epic", [])])
-                manuales = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("horarios_manuales", [])])
-                logger.info("📂 Memoria cargada y depurada de duplicados desde el JSON.")
+                vivo_muerto = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("vivo_o_muerto", [])])
+                r60_plus = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_plus", [])])
+                r60_menos = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_menos", [])])
+                
+                # Migración de compatibilidad si el archivo viejo tenía las 4 tablas separadas
+                if not vivo_muerto and not r60_plus and not r60_menos:
+                    t1 = [item_desde_serializable(i) for i in data.get("tabla_60_plus", [])]
+                    t2 = [item_desde_serializable(i) for i in data.get("tabla_raids", [])]
+                    t_epic = [item_desde_serializable(i) for i in data.get("tabla_epic", [])]
+                    manuales = [item_desde_serializable(i) for i in data.get("horarios_manuales", [])]
+                    
+                    r60_plus = limpiar_duplicados_por_nombre(t1 + manuales)
+                    r60_menos = limpiar_duplicados_por_nombre(t2)
+                    vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
+
+                logger.info("📂 Memoria cargada en las 3 tablas principales desde el JSON.")
                 return {
-                    "tabla_60_plus": t1,
-                    "tabla_raids": t2,
-                    "tabla_epic": t_epic,
-                    "horarios_manuales": manuales
+                    "vivo_o_muerto": vivo_muerto,
+                    "raid_60_plus": r60_plus,
+                    "raid_60_menos": r60_menos
                 }
         except Exception as e:
             logger.error(f"Error al cargar JSON en memoria: {e}")
+            
     return {
-        "tabla_60_plus": [],
-        "tabla_raids": [],
-        "tabla_epic": [],
-        "horarios_manuales": []
+        "vivo_o_muerto": [],
+        "raid_60_plus": [],
+        "raid_60_menos": []
     }
 
 def guardar_memoria_a_json_completa():
     try:
         data = {
-            "tabla_60_plus": [item_a_serializable(i) for i in MEMORIA_JEFES.get("tabla_60_plus", [])],
-            "tabla_raids": [item_a_serializable(i) for i in MEMORIA_JEFES.get("tabla_raids", [])],
-            "tabla_epic": [item_a_serializable(i) for i in MEMORIA_JEFES.get("tabla_epic", [])],
-            "horarios_manuales": [item_a_serializable(i) for i in MEMORIA_JEFES.get("horarios_manuales", [])]
+            "vivo_o_muerto": [item_a_serializable(i) for i in MEMORIA_JEFES.get("vivo_o_muerto", [])],
+            "raid_60_plus": [item_a_serializable(i) for i in MEMORIA_JEFES.get("raid_60_plus", [])],
+            "raid_60_menos": [item_a_serializable(i) for i in MEMORIA_JEFES.get("raid_60_menos", [])]
         }
         with open(ARCHIVO_JSON, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        logger.info(f"💾 Archivo '{ARCHIVO_JSON}' guardado sin duplicados.")
+        logger.info(f"💾 Archivo '{ARCHIVO_JSON}' guardado con las 3 tablas limpias.")
     except Exception as e:
         logger.error(f"Error al guardar memoria en JSON: {e}")
+
+def clasificar_y_distribuir_items(lista_items):
+    """
+    Distribuye los elementos entrantes en las 3 tablas correspondientes 
+    según nivel (>=60 o <60) o pertenencia a la lista blanca estricta.
+    """
+    r60_plus = []
+    r60_menos = []
+
+    for item in lista_items:
+        nombre = str(item.get("nombre", "")).strip().lower()
+        try:
+            nivel = int(item.get("nivel", 85))
+        except Exception:
+            nivel = 85
+
+        if nombre in WH_RAID_60_PLUS_EXTRA or nivel >= 60:
+            r60_plus.append(item)
+        else:
+            r60_menos.append(item)
+
+    return limpiar_duplicados_por_nombre(r60_plus), limpiar_duplicados_por_nombre(r60_menos)
 
 def aplicar_offset_web(lista_jefes, offset_horas):
     if offset_horas == 0 or not lista_jefes:
@@ -267,33 +303,23 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_limpia, key=clave_orden)
 
 def obtener_todos_los_jefes_unificados():
-    """
-    CONSOLIDADORA GLOBAL: Une de forma limpia la web (tabla_60_plus, raids, epic) 
-    y los ingresos manuales (horarios_manuales), garantizando que no existan duplicados.
-    """
-    t60 = MEMORIA_JEFES.get("tabla_60_plus", [])
-    traids = MEMORIA_JEFES.get("tabla_raids", [])
-    tepic = MEMORIA_JEFES.get("tabla_epic", [])
-    manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-    
-    return limpiar_duplicados_por_nombre(t60 + traids + tepic + manuales)
+    """Consolida las 3 tablas de memoria eliminando duplicados."""
+    v_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
+    r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
+    r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
+    return limpiar_duplicados_por_nombre(v_muerto + r60_plus + r60_menos)
 
 def procesar_integracion_y_filtrado():
-    # Integra tabla 60+ con manuales prioritarios para la vista principal
-    tabla_60_base = MEMORIA_JEFES.get("tabla_60_plus", [])
-    manuales = MEMORIA_JEFES.get("horarios_manuales", [])
-    tabla_60_integrada = limpiar_duplicados_por_nombre(tabla_60_base + manuales)
-     
-    tabla_60_ordenada = ordenar_y_priorizar(tabla_60_integrada)
-    tabla_raids_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_raids", []))
-    tabla_epic_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("tabla_epic", []))
+    r60_plus_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
+    r60_menos_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
+    vivo_muerto_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
 
-    todos_los_datos = ordenar_y_priorizar(tabla_60_ordenada + tabla_raids_ordenada + tabla_epic_ordenada)
+    todos_los_datos = ordenar_y_priorizar(r60_plus_ordenada + r60_menos_ordenada + vivo_muerto_ordenada)
 
     wh_horario = {
         "valakas", "core", "orfen", "antharas", "baium", "zaken",  
         "frintezza", "fafurion", "fafureon", "queen ant", "freya",  
-        "zariche", "asedio", "p v p", "x 9", "foto mes"
+        "zariche", "asedio", "p v p", "x 9", "x9", "foto mes"
     }
      
     wh_ma = {"valakas", "antharas", "fafurion", "fafureon"}
@@ -302,13 +328,13 @@ def procesar_integracion_y_filtrado():
     datos_ma = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_ma]
 
     return {
-        "tabla_60_plus": tabla_60_ordenada,
-        "tabla_raids": tabla_raids_ordenada,
-        "tabla_epic": tabla_epic_ordenada,
+        "tabla_60_plus": r60_plus_ordenada,
+        "tabla_raids": r60_menos_ordenada,
+        "tabla_epic": vivo_muerto_ordenada,
         "salida_horario_data": limpiar_duplicados_por_nombre(datos_horario),
         "salida_ma_data": limpiar_duplicados_por_nombre(datos_ma),
         "salida_ronda_data": limpiar_duplicados_por_nombre(todos_los_datos),
-        "salida_low_data": limpiar_duplicados_por_nombre(tabla_raids_ordenada)
+        "salida_low_data": limpiar_duplicados_por_nombre(r60_menos_ordenada)
     }
 
 async def disparar_salidas_web(bot_instance):
@@ -318,7 +344,6 @@ async def disparar_salidas_web(bot_instance):
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
         await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
          
-        # Usamos la consolidación completa que incluye manuales + web
         todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
         logger.info("✅ Salidas web ejecutadas con éxito.")
@@ -333,7 +358,6 @@ async def disparar_salidas_manuales(bot_instance):
         await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
         await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
          
-        # Usamos la consolidación completa que incluye manuales + web
         todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
         await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
         logger.info("✅ Salidas manuales ejecutadas con éxito.")
@@ -357,14 +381,22 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            vieja_t1 = MEMORIA_JEFES.get("tabla_60_plus", [])
-            vieja_t2 = MEMORIA_JEFES.get("tabla_raids", [])
-            vieja_t_epic = MEMORIA_JEFES.get("tabla_epic", [])
+            # Distribuir datos web a las tablas correspondientes
+            nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(t1 + t2)
+            nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
+
+            vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
+            vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
+            vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
               
-            if listas_han_cambiado(vieja_t1, t1) or listas_han_cambiado(vieja_t2, t2) or listas_han_cambiado(vieja_t_epic, t_epic):
-                MEMORIA_JEFES["tabla_60_plus"] = limpiar_duplicados_por_nombre(t1)
-                MEMORIA_JEFES["tabla_raids"] = limpiar_duplicados_por_nombre(t2)
-                MEMORIA_JEFES["tabla_epic"] = limpiar_duplicados_por_nombre(t_epic)
+            if (listas_han_cambiado(vieja_r60_plus, nuevos_r60_plus) or 
+                listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos) or 
+                listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto)):
+                
+                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
+                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
+                
                 guardar_memoria_a_json_completa()
                 await disparar_salidas_web(bot)
     except Exception as e:
@@ -398,9 +430,11 @@ async def on_message(message):
                 # 1. Asignar niveles
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                # 2. Obtener manuales actuales
-                manuales_actuales = MEMORIA_JEFES.get("horarios_manuales", [])
-                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in manuales_actuales}
+                # 2. Obtener registros actuales de las tablas
+                actuales_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
+                actuales_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
+                
+                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in (actuales_r60_plus + actuales_r60_menos)}
 
                 # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
                 registros_depurados = []
@@ -423,11 +457,15 @@ async def on_message(message):
                     if nombre:
                         dict_combinado[nombre] = reg
 
-                # 4. APLICAR LIMPIEZA GLOBAL DE DUPLICADOS POR NOMBRE
-                MEMORIA_JEFES["horarios_manuales"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
+                # 4. Reclasificar todo el conjunto combinado en las tablas de 60+ y 60-
+                lista_total_actualizada = list(dict_combinado.values())
+                nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
+
+                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
+                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
 
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria actualizada de forma segura. Total manuales únicos: {len(MEMORIA_JEFES['horarios_manuales'])}")
+                logger.info(f"💾 Memoria actualizada de forma segura en 3 tablas. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
                  
                 await disparar_salidas_manuales(bot)
 
