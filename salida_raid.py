@@ -45,7 +45,7 @@ FILTRO_PUBLICAR_RAIDS = {
     "Galaxia": "si",
     "Barakiel": "si",
     "otros_60_mas": "no",
-    "otros_60_menos": "si"
+    "otros_60_menos": "no"
 }
 
 FILTRO_PUBLICAR_RAIDS_ANTES = {
