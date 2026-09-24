@@ -49,7 +49,7 @@ FILTRO_PUBLICAR_RAIDS = {
     "otros_60_menos": "no"
 }
 
-# 2. Segundo filtro ("antes" - se evaluará con margen de 10 min previos)
+# 2. Segundo filtro ("antes" - se evaluará justo al comenzar la hora exacta)
 FILTRO_PUBLICAR_RAIDS_ANTES = {
     "Valakas": "no",
     "Antharas": "no",
@@ -74,7 +74,7 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
     "otros_60_menos": "no"
 }
 
-# 3. Tercer filtro ("salio" - se evaluará cuando la hora ya llegó o pasó)
+# 3. Tercer filtro ("salio" - se evaluará estrictamente cuando la web indique VIVO)
 FILTRO_PUBLICAR_RAIDS_SALIO = {
     "Valakas": "no",
     "Antharas": "no",
@@ -184,8 +184,8 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
     Función principal:
     - Recibe todas las listas de jefes globales.
     - Filtra qué jefes deben imprimirse según el tipo de filtro solicitado ('principal', 'antes', 'salio').
-    - 'antes': Filtra los jefes a los que les faltan exactamente entre 0 y 10 minutos para salir.
-    - 'salio': Filtra los jefes cuya hora ya llegó/pasó o están marcados como VIVOS.
+    - 'antes': Se dispara justo al comenzar la hora exacta del rango.
+    - 'salio': Se dispara exclusivamente cuando la página web indica que está VIVO.
     """
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
@@ -254,19 +254,17 @@ async def ejecutar(bot_instance, datos_horario, tipo_filtro="principal"):
 
             # APLICAR LÓGICA DE TIEMPO SEGÚN EL TIPO DE FILTRO
             if tipo_filtro == "antes":
-                # Condición: Debe faltar entre 0 y 10 minutos para que salga (y que no esté ya vivo)
+                # Se dispara justo al comenzar la hora exacta del rango (entre 0 y 1.5 minutos pasados)
                 if es_vivo or not dt_obj:
                     continue
-                diferencia_minutos = (dt_obj - ahora_actual).total_seconds() / 60
-                # Margen estricto: entre 0 y 10 minutos restantes
-                if not (0 <= diferencia_minutos <= 10):
+                diferencia_minutos = (ahora_actual - dt_obj).total_seconds() / 60
+                if not (0 <= diferencia_minutos < 1.5):
                     continue
 
             elif tipo_filtro == "salio":
-                # Condición: O la fuente dice que está VIVO, o la hora de respawn ya llegó o pasó
+                # Se dispara estrictamente cuando la página web indique que está VIVO
                 if not es_vivo:
-                    if not dt_obj or dt_obj > ahora_actual:
-                        continue
+                    continue
             
             # Definir texto final de hora/estado
             if es_vivo or tipo_filtro == "salio":
