@@ -137,7 +137,7 @@ def cargar_memoria_desde_json():
                 r60_plus = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_plus", [])])
                 r60_menos = limpiar_duplicados_por_nombre([item_desde_serializable(i) for i in data.get("raid_60_menos", [])])
                 
-                # Migración de compatibilidad si el archivo viejo tenía las 4 tablas separadas
+                # Compatibilidad si el archivo viejo tenía las 4 tablas separadas
                 if not vivo_muerto and not r60_plus and not r60_menos:
                     t1 = [item_desde_serializable(i) for i in data.get("tabla_60_plus", [])]
                     t2 = [item_desde_serializable(i) for i in data.get("tabla_raids", [])]
@@ -177,10 +177,6 @@ def guardar_memoria_a_json_completa():
         logger.error(f"Error al guardar memoria en JSON: {e}")
 
 def clasificar_y_distribuir_items(lista_items):
-    """
-    Distribuye los elementos entrantes en las 3 tablas correspondientes 
-    según nivel (>=60 o <60) o pertenencia a la lista blanca estricta.
-    """
     r60_plus = []
     r60_menos = []
 
@@ -302,67 +298,27 @@ def ordenar_y_priorizar(lista_jefes):
     lista_limpia = limpiar_duplicados_por_nombre(lista_jefes)
     return sorted(lista_limpia, key=clave_orden)
 
-def obtener_todos_los_jefes_unificados():
-    """Consolida las 3 tablas de memoria eliminando duplicados."""
-    v_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
-    r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
-    r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
-    return limpiar_duplicados_por_nombre(v_muerto + r60_plus + r60_menos)
-
-def procesar_integracion_y_filtrado():
-    r60_plus_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
-    r60_menos_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
-    vivo_muerto_ordenada = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
-
-    todos_los_datos = ordenar_y_priorizar(r60_plus_ordenada + r60_menos_ordenada + vivo_muerto_ordenada)
-
-    wh_horario = {
-        "valakas", "core", "orfen", "antharas", "baium", "zaken",  
-        "frintezza", "fafurion", "fafureon", "queen ant", "freya",  
-        "zariche", "asedio", "p v p", "x 9", "x9", "foto mes"
-    }
-     
-    wh_ma = {"valakas", "antharas", "fafurion", "fafureon"}
-
-    datos_horario = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_horario]
-    datos_ma = [j for j in todos_los_datos if j.get("nombre", "").strip().lower() in wh_ma]
-
-    return {
-        "tabla_60_plus": r60_plus_ordenada,
-        "tabla_raids": r60_menos_ordenada,
-        "tabla_epic": vivo_muerto_ordenada,
-        "salida_horario_data": limpiar_duplicados_por_nombre(datos_horario),
-        "salida_ma_data": limpiar_duplicados_por_nombre(datos_ma),
-        "salida_ronda_data": limpiar_duplicados_por_nombre(todos_los_datos),
-        "salida_low_data": limpiar_duplicados_por_nombre(r60_menos_ordenada)
-    }
-
-async def disparar_salidas_web(bot_instance):
-    logger.info("🚀 [Web] Procesando salidas web consolidadas...")
+async def disparar_salidas_por_cambios(bot_instance):
+    """
+    Dispara exclusivamente las salidas requeridas al detectar modificaciones:
+    - salida_ronda recibe: vivo_o_muerto + raid_60_plus ordenados.
+    - salida_low recibe: raid_60_menos ordenados.
+    """
+    logger.info("🚀 [Salidas] Detectados cambios en el JSON. Actualizando impresiones...")
     try:
-        datos_procesados = procesar_integracion_y_filtrado()
-        await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
-        await salida_low.ejecutar(bot_instance, datos_procesados["salida_low_data"])
-         
-        todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
-        await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Salidas web ejecutadas con éxito.")
-    except Exception as e:
-        logger.error(f"Error en salidas web: {e}")
+        vivo_muerto_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
+        r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
+        r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
 
-async def disparar_salidas_manuales(bot_instance):
-    logger.info("🚀 [Manual] Procesando salidas manuales consolidadas...")
-    try:
-        datos_procesados = procesar_integracion_y_filtrado()
-        await salida_horario.ejecutar(bot_instance, datos_procesados["salida_horario_data"])
-        await salida_ma.ejecutar(bot_instance, datos_procesados["salida_ma_data"])
-        await salida_ronda.ejecutar(bot_instance, datos_procesados["salida_ronda_data"])
-         
-        todos_los_jefes_unificados = obtener_todos_los_jefes_unificados()
-        await salida_raid.ejecutar(bot_instance, todos_los_jefes_unificados)
-        logger.info("✅ Salidas manuales ejecutadas con éxito.")
+        # Combinación exacta para salida_ronda: vivo_o_muerto y raid_60_plus
+        datos_ronda = ordenar_y_priorizar(vivo_muerto_ord + r60_plus_ord)
+
+        await salida_ronda.ejecutar(bot_instance, datos_ronda)
+        await salida_low.ejecutar(bot_instance, r60_menos_ord)
+        
+        logger.info("✅ Salidas actualizadas e impresas con éxito.")
     except Exception as e:
-        logger.error(f"Error en salidas manuales: {e}")
+        logger.error(f"Error al disparar salidas por cambios: {e}")
 
 @bot.event
 async def on_ready():
@@ -381,7 +337,6 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            # Distribuir datos web a las tablas correspondientes
             nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(t1 + t2)
             nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
 
@@ -398,7 +353,7 @@ async def auto_monitor_web():
                 MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
                 
                 guardar_memoria_a_json_completa()
-                await disparar_salidas_web(bot)
+                await disparar_salidas_por_cambios(bot)
     except Exception as e:
         logger.error(f"Error en monitoreo web: {e}")
 
@@ -431,10 +386,11 @@ async def on_message(message):
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
                 # 2. Obtener registros actuales de las tablas
+                actuales_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
                 actuales_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
                 actuales_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
                 
-                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in (actuales_r60_plus + actuales_r60_menos)}
+                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in (actuales_vivo_muerto + actuales_r60_plus + actuales_r60_menos)}
 
                 # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
                 registros_depurados = []
@@ -457,17 +413,26 @@ async def on_message(message):
                     if nombre:
                         dict_combinado[nombre] = reg
 
-                # 4. Reclasificar todo el conjunto combinado en las tablas de 60+ y 60-
+                # 4. Reclasificar todo el conjunto combinado en las 3 tablas
                 lista_total_actualizada = list(dict_combinado.values())
+                
+                # Separamos los de nivel 60+ / lista blanca de los menores
                 nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
 
-                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                # Mantener vivo_o_muerto existente intacto a menos que se modifique explícitamente
+                nuevos_vivo_muerto = actuales_vivo_muerto
 
-                guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria actualizada de forma segura en 3 tablas. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
-                 
-                await disparar_salidas_manuales(bot)
+                # Comprobar si hubo cambios reales antes de guardar y disparar
+                if (listas_han_cambiado(actuales_r60_plus, nuevos_r60_plus) or 
+                    listas_han_cambiado(actuales_r60_menos, nuevos_r60_menos)):
+
+                    MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
+                    MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+
+                    guardar_memoria_a_json_completa()
+                    logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
+                     
+                    await disparar_salidas_por_cambios(bot)
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
