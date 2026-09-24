@@ -92,7 +92,7 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
         "No agregues texto introductorio ni bloques de código markdown, solo los datos extraídos."
     )
     response = client.models.generate_content(
-        model='gemini-2.5-flash', # Actualizado a un modelo estándar estable
+        model='gemini-3.6-flash', # Actualizado a un modelo estándar estable
         contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
     )
     return _parsear_texto_crudo(response.text)
