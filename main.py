@@ -61,13 +61,6 @@ NIVELES_VACIOS_EXTRA = {
     "asedio", "p v p", "x9", "x 9", "foto mes"
 }
 
-# Lista blanca estricta para forzar dentro de raid_60_plus independientemente de su nivel numérico
-WH_RAID_60_PLUS_EXTRA = {
-    "asedio", "p v p", "x9", "x 9", "foto mes", 
-    "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
-    "valakas", "baium", "frintezza", "freya", "antharas", "fafureon"
-}
-
 def asignar_nivel_manual(lista_jefes):
     """Asigna el nivel correspondiente o lo deja en blanco según las reglas establecidas."""
     for item in lista_jefes:
@@ -195,21 +188,26 @@ def guardar_memoria_a_json_completa():
     except Exception as e:
         logger.error(f"Error al guardar memoria en JSON: {e}")
 
-def clasificar_y_distribuir_items(lista_items):
+def clasificar_y_distribuir_items_web(lista_items):
+    """Clasifica los ítems provenientes de la página web en raid_60_plus y raid_60_menos."""
     r60_plus = []
     r60_menos = []
 
+    wh_r60_plus_extra = {
+        "asedio", "p v p", "x9", "x 9", "foto mes", 
+        "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
+        "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"
+    }
+
     for item in lista_items:
         nombre = str(item.get("nombre", "")).strip().lower()
-        
-        # Forzar a 60+ si está en la lista blanca o si su nivel es >= 60
         try:
             nivel_str = str(item.get("nivel", 85)).strip()
             nivel = int(nivel_str) if nivel_str else 85
         except Exception:
             nivel = 85
 
-        if nombre in WH_RAID_60_PLUS_EXTRA or nivel >= 60:
+        if nombre in wh_r60_plus_extra or nivel >= 60:
             r60_plus.append(item)
         else:
             r60_menos.append(item)
@@ -396,18 +394,25 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(t1 + t2)
+            # entrada_pagina alimenta las tres tablas de forma independiente
+            nuevos_r60_plus_web, nuevos_r60_menos = clasificar_y_distribuir_items_web(t1 + t2)
             nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
 
             vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
             vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
             vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
               
-            if (listas_han_cambiado(vieja_r60_plus, nuevos_r60_plus) or 
+            # Fusionar datos web de 60+ preservando ingresos manuales previos en raid_60_plus
+            dict_r60_plus_actual = {str(i.get("nombre","")).lower(): i for i in vieja_r60_plus}
+            for item in nuevos_r60_plus_web:
+                dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
+            fusion_r60_plus = list(dict_r60_plus_actual.values())
+
+            if (listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or 
                 listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos) or 
                 listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto)):
                 
-                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
+                MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
                 MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
                 MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
                 
@@ -444,12 +449,9 @@ async def on_message(message):
                 # 1. Asignar niveles personalizados o dejarlos en blanco para eventos especiales
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
 
-                # 2. Obtener registros actuales de las tablas
-                actuales_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
+                # 2. Obtener la tabla actual de raid_60_plus
                 actuales_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
-                actuales_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
-                
-                dict_actuales = {str(item.get("nombre", "")).strip().lower(): item for item in (actuales_vivo_muerto + actuales_r60_plus + actuales_r60_menos)}
+                dict_actuales_r60 = {str(item.get("nombre", "")).strip().lower(): item for item in actuales_r60_plus}
 
                 # 3. Validar y fusionar protegiendo contra tiempos vacíos o "-"
                 registros_depurados = []
@@ -458,31 +460,25 @@ async def on_message(message):
                     tiempo_nuevo = str(nuevo.get("tiempo_str", "")).strip()
 
                     if tiempo_nuevo in ["-", "", "None"]:
-                        if nombre_nuevo in dict_actuales:
-                            tiempo_viejo = str(dict_actuales[nombre_nuevo].get("tiempo_str", "")).strip()
+                        if nombre_nuevo in dict_actuales_r60:
+                            tiempo_viejo = str(dict_actuales_r60[nombre_nuevo].get("tiempo_str", "")).strip()
                             if tiempo_viejo not in ["-", "", "None"]:
                                 logger.info(f"🛡️ Protección activada: Se ignoró el valor inválido para '{nombre_nuevo}' y se mantiene el horario existente.")
                                 continue
                     
                     registros_depurados.append(nuevo)
 
-                dict_combinado = dict_actuales.copy()
+                # 4. Enviar TODO lo procesado por texto/imagen exclusivamente a raid_60_plus
+                dict_combinado = dict_actuales_r60.copy()
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
                     if nombre:
                         dict_combinado[nombre] = reg
 
-                # 4. Reclasificar todo el conjunto combinado integrando los manuales a la lista de 60+
-                lista_total_actualizada = list(dict_combinado.values())
-                nuevos_r60_plus, nuevos_r60_menos = clasificar_y_distribuir_items(lista_total_actualizada)
-                nuevos_vivo_muerto = actuales_vivo_muerto
-
-                # Actualizar y guardar en memoria
-                MEMORIA_JEFES["raid_60_plus"] = nuevos_r60_plus
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
 
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria actualizada por entrada manual. Total 60+: {len(MEMORIA_JEFES['raid_60_plus'])}, Total 60-: {len(MEMORIA_JEFES['raid_60_menos'])}")
+                logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                
                 # Ejecutar salidas manuales y de ronda
                 await disparar_salidas_manuales(bot, nuevos_registros)
