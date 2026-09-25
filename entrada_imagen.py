@@ -9,7 +9,6 @@ from google import genai
 from google.genai import types
 import config
 
-# Importaciones seguras globales para evitar NameError
 try:
     from PIL import Image, ImageEnhance
     PIL_DISPONIBLE = True
@@ -28,10 +27,6 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 client = genai.Client(api_key=getattr(config, "GEMINI_API_KEY", os.getenv("GEMINI_API_KEY")))
 
 async def procesar_mensaje_imagenes(message):
-    """
-    Verifica si el mensaje contiene imágenes, aplica preprocesamiento visual,
-    ejecuta Gemini y aplica los respaldos correspondientes si falla.
-    """
     if not message.attachments:
         return []
 
@@ -45,7 +40,7 @@ async def procesar_mensaje_imagenes(message):
             try:
                 imagen_bytes_original = await attachment.read()
                 
-                # 🚀 1. PREPROCESAMIENTO VISUAL
+                # 🚀 1. PREPROCESAMIENTO VISUAL (Mejora nitidez para OCR local)
                 imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
                 
                 mime_map = {
@@ -60,16 +55,16 @@ async def procesar_mensaje_imagenes(message):
                 intentos = 0
                 max_intentos = 2
                 
-                # Bucle de reintento ante caídas 503 de Gemini
+                # --- CAPA 1: Gemini ---
                 while intentos < max_intentos and not registros_imagen:
                     intentos += 1
                     try:
                         registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
                     except Exception as e_gemini:
-                        logger.warning(f"⚠️ Intento {intentos}: Capa 1 (Gemini) falló: {e_gemini}")
+                        logger.warning(f"⚠️ Intento {intentos}: Capa 1 (Gemini) falló o sin cuota: {e_gemini}")
                         await asyncio.sleep(2)
 
-                # --- CAPA 2: Respaldo local usando Tesseract OCR ---
+                # --- CAPA 2: Respaldo local con Tesseract OCR (100% offline / sin bloqueos) ---
                 if not registros_imagen and OCR_LOCAL_DISPONIBLE:
                     logger.info("🔄 Activando Capa 2: OCR Local (Tesseract)...")
                     try:
@@ -77,7 +72,7 @@ async def procesar_mensaje_imagenes(message):
                     except Exception as e_ocr:
                         logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}")
 
-                # --- CAPA 3: Respaldo heurístico por Regex ---
+                # --- CAPA 3: Respaldo heurístico por Regex sobre el texto extraído ---
                 if not registros_imagen and OCR_LOCAL_DISPONIBLE:
                     logger.info("🔄 Activando Capa 3: Respaldo Heurístico por Regex...")
                     try:
@@ -104,7 +99,6 @@ async def procesar_mensaje_imagenes(message):
 
 
 def _preprocesar_imagen(imagen_bytes):
-    """Aplica escala de grises y alto contraste de manera segura."""
     if not PIL_DISPONIBLE:
         return imagen_bytes
     try:
@@ -122,7 +116,6 @@ def _preprocesar_imagen(imagen_bytes):
 
 
 def _procesar_con_gemini(imagen_bytes, mime_type):
-    """Capa 1: Extracción mediante Gemini."""
     prompt = (
         "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
         "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
@@ -133,14 +126,13 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
         "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
     )
     response = client.models.generate_content(
-        model='gemini-3.6-flash',
+        model='gemini-2.5-flash',
         contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
     )
     return _parsear_texto_crudo(response.text)
 
 
 def _procesar_con_tesseract_local(imagen_bytes):
-    """Capa 2: Respaldo local usando Tesseract."""
     imagen = Image.open(io.BytesIO(imagen_bytes))
     config_tesseract = r'--oem 3 --psm 6'
     texto_extraido = pytesseract.image_to_string(imagen, config=config_tesseract)
@@ -148,7 +140,6 @@ def _procesar_con_tesseract_local(imagen_bytes):
 
 
 def _procesar_capa_3_emergencia(texto_crudo):
-    """Capa 3: Respaldo de emergencia por expresiones regulares."""
     registros = []
     zona_actual = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
     lineas = texto_crudo.split('\n')
@@ -170,7 +161,6 @@ def _procesar_capa_3_emergencia(texto_crudo):
 
 
 def _parsear_texto_crudo(texto_crudo):
-    """Procesa, limpia y normaliza el texto."""
     if not texto_crudo:
         return []
         
@@ -257,7 +247,6 @@ def _parsear_texto_crudo(texto_crudo):
 
 
 def _consolidar_y_ordenar_registros(registros):
-    """Consolida y ordena los registros sin duplicados."""
     unicos = {}
     for r in registros:
         nombre_key = r["nombre"].strip().lower()
