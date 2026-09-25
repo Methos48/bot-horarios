@@ -40,7 +40,7 @@ async def procesar_mensaje_imagenes(message):
             try:
                 imagen_bytes_original = await attachment.read()
                 
-                # 🚀 1. PREPROCESAMIENTO VISUAL (Mejora nitidez para OCR local)
+                # 🚀 PREPROCESAMIENTO VISUAL (Mejora nitidez para Tesseract)
                 imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
                 
                 mime_map = {
@@ -52,34 +52,35 @@ async def procesar_mensaje_imagenes(message):
                 mime_type = mime_map.get(ext, 'image/png')
                 
                 registros_imagen = []
-                intentos = 0
-                max_intentos = 2
-                
-                # --- CAPA 1: Gemini ---
-                while intentos < max_intentos and not registros_imagen:
-                    intentos += 1
-                    try:
-                        registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
-                    except Exception as e_gemini:
-                        logger.warning(f"⚠️ Intento {intentos}: Capa 1 (Gemini) falló o sin cuota: {e_gemini}")
-                        await asyncio.sleep(2)
 
-                # --- CAPA 2: Respaldo local con Tesseract OCR (100% offline / sin bloqueos) ---
-                if not registros_imagen and OCR_LOCAL_DISPONIBLE:
-                    logger.info("🔄 Activando Capa 2: OCR Local (Tesseract)...")
+                # --- CAPA 1: OCR Local con Tesseract (Opción Principal) ---
+                if OCR_LOCAL_DISPONIBLE:
+                    logger.info("🔍 Activando Capa 1: OCR Local (Tesseract)...")
                     try:
                         registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
                     except Exception as e_ocr:
-                        logger.warning(f"⚠️ Capa 2 (Tesseract) falló: {e_ocr}")
+                        logger.warning(f"⚠️ Capa 1 (Tesseract) falló: {e_ocr}")
 
-                # --- CAPA 3: Respaldo heurístico por Regex sobre el texto extraído ---
+                # --- CAPA 2: Respaldo heurístico por Regex sobre Tesseract ---
                 if not registros_imagen and OCR_LOCAL_DISPONIBLE:
-                    logger.info("🔄 Activando Capa 3: Respaldo Heurístico por Regex...")
+                    logger.info("🔄 Activando Capa 2: Respaldo Heurístico por Regex...")
                     try:
                         texto_crudo_tesseract = pytesseract.image_to_string(Image.open(io.BytesIO(imagen_bytes)))
                         registros_imagen = _procesar_capa_3_emergencia(texto_crudo_tesseract)
                     except Exception as e_reg:
-                        logger.warning(f"⚠️ Capa 3 falló: {e_reg}")
+                        logger.warning(f"⚠️ Capa 2 (Regex) falló: {e_reg}")
+
+                # --- CAPA 3: Gemini (Respaldo Final si el OCR local no detectó nada) ---
+                intentos = 0
+                max_intentos = 2
+                while not registros_imagen and intentos < max_intentos:
+                    intentos += 1
+                    logger.info(f"🤖 Activando Capa 3 (Respaldo Gemini) - Intento {intentos}...")
+                    try:
+                        registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
+                    except Exception as e_gemini:
+                        logger.warning(f"⚠️ Intento {intentos}: Capa 3 (Gemini) falló: {e_gemini}")
+                        await asyncio.sleep(2)
 
                 if registros_imagen:
                     todos_los_registros.extend(registros_imagen)
@@ -115,23 +116,6 @@ def _preprocesar_imagen(imagen_bytes):
         return imagen_bytes
 
 
-def _procesar_con_gemini(imagen_bytes, mime_type):
-    prompt = (
-        "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
-        "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
-        "Reglas estrictas:\n"
-        "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
-        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado` (Ejemplo: Queen Ant | 16:30 o Balrog | VIVO).\n"
-        "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
-        "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
-    )
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
-    )
-    return _parsear_texto_crudo(response.text)
-
-
 def _procesar_con_tesseract_local(imagen_bytes):
     imagen = Image.open(io.BytesIO(imagen_bytes))
     config_tesseract = r'--oem 3 --psm 6'
@@ -158,6 +142,23 @@ def _procesar_capa_3_emergencia(texto_crudo):
                         "datetime": datetime.now(zona_actual)
                     })
     return registros
+
+
+def _procesar_con_gemini(imagen_bytes, mime_type):
+    prompt = (
+        "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
+        "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
+        "Reglas estrictas:\n"
+        "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
+        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado` (Ejemplo: Queen Ant | 16:30 o Balrog | VIVO).\n"
+        "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
+        "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
+    )
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
+    )
+    return _parsear_texto_crudo(response.text)
 
 
 def _parsear_texto_crudo(texto_crudo):
