@@ -35,6 +35,23 @@ except ImportError:
 
 logger = logging.getLogger("EntradaPagina")
 
+# Lista oficial de jefes permitidos que se enviarán a main.py (con los nombres requeridos)
+NOMBRES_OFICIALES_JEFES = [
+    "Valakas",
+    "Balrog",
+    "Core",
+    "Orfen",
+    "Antharas",
+    "Electrical",
+    "Baium",
+    "Zaken",
+    "Frintezza",
+    "Fafureon",
+    "Queen Ant",
+    "Frey",
+    "Zariche"
+]
+
 # Configuración de zona horaria segura con fallback
 def _obtener_zona_horaria():
     tz_str = "America/Argentina/Buenos_Aires"
@@ -224,7 +241,7 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
         "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
         "Reglas estrictas:\n"
         "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
-        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado` (Ejemplo: Queen Ant | 16:30 o Balrog | VIVO).\n"
+        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado`.\n"
         "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
         "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
     )
@@ -275,15 +292,26 @@ def _parsear_texto_crudo(texto_crudo):
                 continue
 
             nombre_lower = nombre_crudo.lower()
-            if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
+            
+            # REGLA EXCLUSIÓN: Descartar por completo a Barakiel
+            if "barakiel" in nombre_lower:
                 continue
-                
+
+            # Mapeo y normalización estricta de nombres solicitados
+            nombre_limpio = None
             if "balrog" in nombre_lower:
                 nombre_limpio = "Balrog"
-            elif "execution electrical" in nombre_lower or "electrical" in nombre_lower:
+            elif "electrical" in nombre_lower or "execution" in nombre_lower:
                 nombre_limpio = "Electrical"
             else:
-                nombre_limpio = nombre_crudo
+                # Buscar coincidencia exacta o parcial con el resto de la lista oficial permitida
+                for oficial in NOMBRES_OFICIALES_JEFES:
+                    if oficial.lower() in nombre_lower:
+                        nombre_limpio = oficial
+                        break
+
+            if not nombre_limpio:
+                continue  # Si no está en los permitidos, se ignora
 
             es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
 
