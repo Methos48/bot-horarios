@@ -97,7 +97,7 @@ async def procesar_mensaje_imagenes(message):
     if not attachments_validos:
         return []
 
-    # Procesar todas las imágenes en paralelo usando asyncio.gather para máxima velocidad y orden caótico soportado
+    # Procesar todas las imágenes en paralelo usando asyncio.gather para máxima velocidad
     tareas = [_procesar_una_imagen_individual(att, ext) for att, ext in attachments_validos]
     resultados_parciales = await asyncio.gather(*tareas)
 
