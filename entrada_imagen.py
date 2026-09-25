@@ -48,8 +48,9 @@ NOMBRES_OFICIALES_JEFES = [
     "Frintezza",
     "Fafureon",
     "Queen Ant",
-    "Frey",
-    "Zariche"
+    "Freya",
+    "Zariche",
+    "Flame of Splendor Barakiel"
 ]
 
 # Configuración de zona horaria segura con fallback
@@ -247,7 +248,7 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
     )
     try:
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-2.5-flash',
             contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
         )
         if response and hasattr(response, "text"):
@@ -265,7 +266,10 @@ def _parsear_texto_crudo(texto_crudo):
         texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
         texto_crudo = re.sub(r'```\s*', '', texto_crudo)
         
-        lineas = [l.strip() for l in texto_crudo.split('\n') if l.strip()]
+        # Limpieza basada en bloques de puntos separadores visuales
+        texto_limpio = re.sub(r'\.{5,}', '---SEPARADOR---', texto_crudo)
+        lineas = [l.strip() for l in texto_limpio.split('\n') if l.strip()]
+        
         registros = []
         zona_actual = _obtener_zona_horaria()
         ahora_local = datetime.now(zona_actual)
@@ -275,15 +279,19 @@ def _parsear_texto_crudo(texto_crudo):
         while i < len(lineas):
             linea = lineas[i]
             
-            if "|" in linea:
+            if "---SEPARADOR---" in linea:
+                i += 1
+                continue
+
+            if i + 1 < len(lineas) and "---SEPARADOR---" not in lineas[i+1]:
+                nombre_crudo = linea
+                resto = lineas[i+1]
+                i += 2
+            elif "|" in linea:
                 partes = linea.split("|", 1)
                 nombre_crudo = partes[0].strip()
                 resto = partes[1].strip()
                 i += 1
-            elif i + 1 < len(lineas) and re.search(r'\d{1,2}:\d{2}|\b(entre|vivo|hs|sabado|domingo|lunes|martes|miercoles|jueves|viernes)\b', lineas[i+1], re.IGNORECASE):
-                nombre_crudo = linea
-                resto = lineas[i+1]
-                i += 2
             else:
                 i += 1
                 continue
@@ -293,8 +301,8 @@ def _parsear_texto_crudo(texto_crudo):
 
             nombre_lower = nombre_crudo.lower()
             
-            # REGLA EXCLUSIÓN: Descartar por completo a Barakiel
-            if "barakiel" in nombre_lower:
+            # REGLA EXCLUSIÓN: Descartar Barakiel a menos que sea Flame of Splendor
+            if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
                 continue
 
             # Mapeo y normalización estricta de nombres solicitados
@@ -304,7 +312,6 @@ def _parsear_texto_crudo(texto_crudo):
             elif "electrical" in nombre_lower or "execution" in nombre_lower:
                 nombre_limpio = "Electrical"
             else:
-                # Buscar coincidencia exacta o parcial con el resto de la lista oficial permitida
                 for oficial in NOMBRES_OFICIALES_JEFES:
                     if oficial.lower() in nombre_lower:
                         nombre_limpio = oficial
@@ -316,15 +323,19 @@ def _parsear_texto_crudo(texto_crudo):
             es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
 
             match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
-            match_hora = re.search(r'(\d{1,2}):(\d{2})', resto)
             
-            if not match_hora:
-                match_hora_simple = re.search(r'(?:entre\s+)?(\d{1,2})', resto, re.IGNORECASE)
-                hora_str = f"{match_hora_simple.group(1).zfill(2)}:00" if match_hora_simple else "00:00"
-                tiene_tiempo = bool(match_hora_simple)
-            else:
-                hora_str = f"{match_hora.group(1).zfill(2)}:{match_hora.group(2)}"
+            # Extraer todas las horas del rango y tomar la PRIMERA (inicio de ventana)
+            todas_las_horas = re.findall(r'(\d{1,2})(?::(\d{2}))?', resto)
+            
+            hora_str = "00:00"
+            tiene_tiempo = False
+
+            if todas_las_horas:
                 tiene_tiempo = True
+                h1_num, m1_str = todas_las_horas[0]
+                h1 = int(h1_num)
+                m1 = int(m1_str) if m1_str else 0
+                hora_str = f"{h1:02d}:{m1:02d}"
 
             if match_fecha:
                 dia = int(match_fecha.group(1))
@@ -336,6 +347,7 @@ def _parsear_texto_crudo(texto_crudo):
                 except ValueError:
                     dt = datetime.max.replace(tzinfo=zona_actual)
             elif tiene_tiempo and not es_vivo:
+                # Si NO trae fecha explícita, asume automáticamente que es HOY
                 try:
                     h, m = map(int, hora_str.split(':'))
                     dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
