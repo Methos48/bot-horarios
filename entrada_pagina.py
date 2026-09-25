@@ -170,17 +170,12 @@ def obtener_datos_epic_web():
         soup = BeautifulSoup(response.text, 'html.parser')
         epic_bosses = []
 
-        # Búsqueda adaptada a la estructura visual de Epic Bosses (tarjetas con nombre, nivel y estado VIVO/MUERTO)
-        # Se buscan contenedores que tengan clases o estructuras relacionadas con Epic Bosses
         contenedores_epic = soup.find_all(lambda tag: tag.name in ['div', 'li', 'article'] and any('epic' in c.lower() for c in tag.get('class', [])))
         
         if not contenedores_epic:
-            # Plan de respaldo general buscando los nombres clave de Epic Bosses en todo el documento
-            nombres_buscados = list(MAPEO_NOMBRES.keys())
             for el in soup.find_all(text=True):
                 texto = el.strip()
                 if texto.lower() in ["antharas", "fafureon", "freya", "frintezza", "valakas", "baium", "zaken", "core", "orfen", "queen ant"]:
-                    # Buscar el bloque padre contenedor para extraer el estado
                     padre = el.find_parent(['div', 'tr', 'li', 'section'])
                     if padre:
                         estado_texto = padre.get_text(separator=' ', strip=True).upper()
@@ -199,7 +194,6 @@ def obtener_datos_epic_web():
         else:
             for contenedor in contenedores_epic:
                 texto_bloque = contenedor.get_text(separator=' ', strip=True)
-                # Intentar extraer nombre y estatus dentro de la tarjeta
                 for clave, nombre_formateado in MAPEO_NOMBRES.items():
                     if clave in texto_bloque.lower():
                         estado = "VIVO" if "VIVO" in texto_bloque.upper() or "ALIVE" in texto_bloque.upper() else "MUERTO"
@@ -214,7 +208,6 @@ def obtener_datos_epic_web():
                                 "tiempo_str": "-"
                             })
 
-        # Ordenar epic bosses: Vivos arriba, luego alfabéticamente o por nivel
         epic_bosses_ordenados = sorted(epic_bosses, key=lambda x: (x["estado"] != "VIVO", x["nombre"]))
         logger.info(f"Epic Bosses procesados con éxito. Total: {len(epic_bosses_ordenados)} jefes")
         return epic_bosses_ordenados
