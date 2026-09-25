@@ -2,13 +2,14 @@ import logging
 import re
 import os
 import io
+import json
 import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # Importaciones opcionales protegidas
 try:
-    from PIL import Image, ImageEnhance
+    from PIL import Image, ImageEnhance, ImageOps
     PIL_DISPONIBLE = True
 except ImportError:
     PIL_DISPONIBLE = False
@@ -35,7 +36,7 @@ except ImportError:
 
 logger = logging.getLogger("EntradaPagina")
 
-# Lista oficial de jefes permitidos que se enviarán a main.py (con los nombres requeridos)
+# Lista oficial de jefes permitidos
 NOMBRES_OFICIALES_JEFES = [
     "Valakas",
     "Balrog",
@@ -53,7 +54,6 @@ NOMBRES_OFICIALES_JEFES = [
     "Flame of Splendor Barakiel"
 ]
 
-# Configuración de zona horaria segura con fallback
 def _obtener_zona_horaria():
     tz_str = "America/Argentina/Buenos_Aires"
     if config and hasattr(config, "TZ"):
@@ -65,7 +65,6 @@ def _obtener_zona_horaria():
 
 ZONA_ARGENTINA = _obtener_zona_horaria()
 
-# Inicializar cliente de Gemini de forma segura
 client = None
 if GEMINI_DISPONIBLE:
     try:
@@ -83,7 +82,6 @@ if GEMINI_DISPONIBLE:
 async def procesar_mensaje_imagenes(message):
     """
     Procesa las imágenes adjuntas con un sistema blindado de 3 capas.
-    Garantiza que NUNCA se produzca una excepción no controlada que rompa el bot.
     """
     if not message or not getattr(message, "attachments", None):
         return []
@@ -101,7 +99,6 @@ async def procesar_mensaje_imagenes(message):
 
             logger.info(f"🖼️ [Blindado] Procesando imagen: {filename}")
             
-            # Descarga protegida de bytes
             try:
                 imagen_bytes_original = await attachment.read()
             except Exception as e_dl:
@@ -111,7 +108,7 @@ async def procesar_mensaje_imagenes(message):
             if not imagen_bytes_original:
                 continue
 
-            # 🚀 Preprocesamiento visual seguro
+            # 🚀 Preprocesamiento optimizado para texto rojo/verde y fuentes pixeladas
             imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
             
             mime_map = {
@@ -124,7 +121,7 @@ async def procesar_mensaje_imagenes(message):
             
             registros_imagen = []
 
-            # --- CAPA 1: OCR Local con Tesseract (Opción Principal y Rápida) ---
+            # --- CAPA 1: OCR Local con Tesseract ---
             if OCR_LOCAL_DISPONIBLE:
                 try:
                     logger.info("🔍 [Capa 1] Ejecutando OCR Local (Tesseract)...")
@@ -162,7 +159,6 @@ async def procesar_mensaje_imagenes(message):
         except Exception as e_img:
             logger.error(f"❌ Error crítico manejando imagen individual: {e_img}", exc_info=True)
 
-    # Borrar mensaje original solo si se procesó con éxito
     if imagenes_procesadas_con_exito and todos_los_registros:
         try:
             await message.delete()
@@ -174,19 +170,34 @@ async def procesar_mensaje_imagenes(message):
 
 
 def _preprocesar_imagen(imagen_bytes):
+    """
+    Optimización visual para imágenes oscuras con texto rojo/verde pixelado.
+    Reescala 3x y binariza para resaltar el texto ante Tesseract.
+    """
     if not PIL_DISPONIBLE:
         return imagen_bytes
     try:
-        imagen = Image.open(io.BytesIO(imagen_bytes)).convert('L')
-        enhancer = ImageEnhance.Contrast(imagen)
-        imagen = enhancer.enhance(2.2)
+        img = Image.open(io.BytesIO(imagen_bytes)).convert('RGB')
         
+        # 1. Reescalar 3x con NEAREST para agrandar la fuente pixelada sin desenfocar
+        w, h = img.size
+        img = img.resize((w * 3, h * 3), Image.NEAREST)
+        
+        # 2. Convertir a escala de grises
+        gray = img.convert('L')
+        
+        # 3. Umbral (Thresholding): El fondo oscuro pasa a blanco y el texto brillante a negro
+        # Texto rojo/verde/amarillo tiene valores > 35 en 'L', el fondo oscuro es < 25
+        threshold = 35
+        fn = lambda x: 0 if x > threshold else 255
+        binarizada = gray.point(fn, mode='1')
+
         output_io = io.BytesIO()
-        imagen.save(output_io, format='PNG')
+        binarizada.save(output_io, format='PNG')
         output_io.seek(0)
         return output_io.getvalue()
     except Exception as e:
-        logger.warning(f"⚠️ Error menor en preprocesamiento visual, usando bytes originales: {e}")
+        logger.warning(f"⚠️ Error en preprocesamiento visual, usando bytes originales: {e}")
         return imagen_bytes
 
 
@@ -202,175 +213,164 @@ def _procesar_con_tesseract_local(imagen_bytes):
 
 
 def _procesar_capa_2_emergencia(texto_crudo):
-    registros = []
-    if not texto_crudo:
-        return registros
-    try:
-        zona_actual = _obtener_zona_horaria()
-        lineas = [l.strip() for l in texto_crudo.split('\n') if l.strip()]
-        
-        i = 0
-        while i < len(lineas) - 1:
-            linea_actual = lineas[i]
-            siguiente_linea = lineas[i+1]
-            
-            if re.search(r'\d{1,2}:\d{2}|\b(vivo|entre|hs|sabado|domingo|lunes|martes|miercoles|jueves|viernes)\b', siguiente_linea, re.IGNORECASE):
-                nombre = linea_actual
-                resto = siguiente_linea
-                
-                es_vivo = "vivo" in resto.lower() or "alive" in resto.lower()
-                registros.append({
-                    "nombre": nombre,
-                    "tiempo_str": resto,
-                    "estado": "VIVO" if es_vivo else "PROGRAMADO",
-                    "es_vivo": es_vivo,
-                    "datetime": datetime.now(zona_actual)
-                })
-                i += 2
-            else:
-                i += 1
-    except Exception as e:
-        logger.warning(f"⚠️ Error en respaldo Regex: {e}")
-    return registros
+    return _parsear_texto_crudo(texto_crudo)
 
 
 def _procesar_con_gemini(imagen_bytes, mime_type):
     if not client:
         return []
+    
     prompt = (
-        "Analiza esta imagen que contiene información u horarios de Raid Bosses de Lineage II. "
-        "Extrae cada fila o bloque identificando el nombre del jefe y su horario o estado correspondiente. "
-        "Reglas estrictas:\n"
-        "1. Si es una tabla por columnas, extrae el horario de la columna de Argentina/Chile.\n"
-        "2. Devuelve estrictamente una línea por cada jefe con el formato: `Nombre del Jefe | Horario o Estado`.\n"
-        "3. Si una línea tiene un guion (-) o carece de datos válidos, ignórala.\n"
-        "4. No agregues saludos, explicaciones ni bloques markdown. Solo las líneas de datos."
+        "Analiza esta imagen de Raid Bosses de Lineage II. "
+        "Devuelve un arreglo JSON estricto con los jefes encontrados. Cada objeto debe tener:\n"
+        "- \"nombre\": Nombre exacto del jefe (ej: \"Balrog\", \"Orfen\", \"Flame of Splendor Barakiel\", \"Electrical\", etc.)\n"
+        "- \"tiempo_str\": La línea completa de horario o estado (ej: \"VIVO\", \"Entre 03:30 y 04 hs (ARG)\", \"Sabado 26/09 entre 11:30 y 12 hs (ARG)\").\n"
+        "Si una línea no contiene datos válidos o es un título, ignórala. Responde SOLO con el JSON válido."
     )
+    
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
         )
         if response and hasattr(response, "text"):
-            return _parsear_texto_crudo(response.text)
+            match_json = re.search(r'\[.*\]', response.text, re.DOTALL)
+            if match_json:
+                datos = json.loads(match_json.group(0))
+                registros = []
+                zona_actual = _obtener_zona_horaria()
+                for item in datos:
+                    nombre = item.get("nombre", "")
+                    tiempo = item.get("tiempo_str", "")
+                    reg = _normalizar_registro(nombre, tiempo, zona_actual)
+                    if reg:
+                        registros.append(reg)
+                return registros
     except Exception as e:
         logger.warning(f"⚠️ Error en API Gemini: {e}")
     return []
 
 
+def _normalizar_registro(nombre_crudo, resto, zona_actual):
+    """
+    Valida, normaliza nombres y parsea correctamente fechas y horas sin interferencia.
+    """
+    if not nombre_crudo or not resto or resto in ["-", "", "None", "---"]:
+        return None
+
+    nombre_lower = nombre_crudo.lower()
+
+    # Regla de Exclusión Barakiel
+    if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
+        return None
+
+    # Mapeo oficial
+    nombre_limpio = None
+    if "balrog" in nombre_lower:
+        nombre_limpio = "Balrog"
+    elif "electrical" in nombre_lower or "execution" in nombre_lower:
+        nombre_limpio = "Electrical"
+    else:
+        for oficial in NOMBRES_OFICIALES_JEFES:
+            if oficial.lower() in nombre_lower:
+                nombre_limpio = oficial
+                break
+
+    if not nombre_limpio:
+        return None
+
+    es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
+    ahora_local = datetime.now(zona_actual)
+    año_actual = ahora_local.year
+
+    match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
+
+    # 🛠️ FIX CLAVE: Eliminar la fecha del resto antes de extraer las horas
+    resto_sin_fecha = re.sub(r'\d{1,2}/\d{1,2}', '', resto)
+    todas_las_horas = re.findall(r'(\d{1,2})(?::(\d{2}))?', resto_sin_fecha)
+
+    hora_str = "00:00"
+    tiene_tiempo = False
+
+    if todas_las_horas:
+        tiene_tiempo = True
+        h1_num, m1_str = todas_las_horas[0]
+        h1 = int(h1_num)
+        m1 = int(m1_str) if m1_str else 0
+        hora_str = f"{h1:02d}:{m1:02d}"
+
+    if match_fecha:
+        dia = int(match_fecha.group(1))
+        mes = int(match_fecha.group(2))
+        fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
+        tiempo_str_estandar = f"{fecha_str} {hora_str}"
+        try:
+            dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
+        except ValueError:
+            dt = datetime.max.replace(tzinfo=zona_actual)
+    elif tiene_tiempo and not es_vivo:
+        try:
+            h, m = map(int, hora_str.split(':'))
+            dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
+            tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            dt = datetime.max.replace(tzinfo=zona_actual)
+            tiempo_str_estandar = "-"
+    else:
+        dt = datetime.max.replace(tzinfo=zona_actual)
+        tiempo_str_estandar = "-"
+
+    if tiempo_str_estandar == "-" and not es_vivo:
+        return None
+
+    tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
+
+    return {
+        "nombre": nombre_limpio,
+        "tiempo_str": tiempo_final_registro,
+        "estado": "VIVO" if es_vivo else "PROGRAMADO",
+        "es_vivo": es_vivo,
+        "datetime": dt
+    }
+
+
 def _parsear_texto_crudo(texto_crudo):
+    """
+    Parseo por detección de nombres oficializados para evitar desfases por encabezados.
+    """
     if not texto_crudo or not isinstance(texto_crudo, str):
         return []
-        
+
     try:
-        texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
-        texto_crudo = re.sub(r'```\s*', '', texto_crudo)
-        
-        # Limpieza basada en bloques de puntos separadores visuales
-        texto_limpio = re.sub(r'\.{5,}', '---SEPARADOR---', texto_crudo)
-        lineas = [l.strip() for l in texto_limpio.split('\n') if l.strip()]
-        
+        lineas = [l.strip() for l in texto_crudo.split('\n') if l.strip()]
         registros = []
         zona_actual = _obtener_zona_horaria()
-        ahora_local = datetime.now(zona_actual)
-        año_actual = ahora_local.year
 
-        i = 0
-        while i < len(lineas):
-            linea = lineas[i]
+        idx = 0
+        while idx < len(lineas):
+            linea = lineas[idx]
             
-            if "---SEPARADOR---" in linea:
-                i += 1
-                continue
+            # Buscar si la línea actual coincide o contiene un nombre conocido
+            nombre_coincidente = None
+            for oficial in NOMBRES_OFICIALES_JEFES + ["balrog devourer", "execution electrical"]:
+                if oficial.lower() in linea.lower():
+                    nombre_coincidente = linea
+                    break
 
-            if i + 1 < len(lineas) and "---SEPARADOR---" not in lineas[i+1]:
-                nombre_crudo = linea
-                resto = lineas[i+1]
-                i += 2
+            if nombre_coincidente and idx + 1 < len(lineas):
+                resto = lineas[idx + 1]
+                reg = _normalizar_registro(nombre_coincidente, resto, zona_actual)
+                if reg:
+                    registros.append(reg)
+                idx += 2
             elif "|" in linea:
                 partes = linea.split("|", 1)
-                nombre_crudo = partes[0].strip()
-                resto = partes[1].strip()
-                i += 1
+                reg = _normalizar_registro(partes[0].strip(), partes[1].strip(), zona_actual)
+                if reg:
+                    registros.append(reg)
+                idx += 1
             else:
-                i += 1
-                continue
-
-            if not nombre_crudo or resto in ["-", "", "None", "---"]:
-                continue
-
-            nombre_lower = nombre_crudo.lower()
-            
-            # REGLA EXCLUSIÓN: Descartar Barakiel a menos que sea Flame of Splendor
-            if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
-                continue
-
-            # Mapeo y normalización estricta de nombres solicitados
-            nombre_limpio = None
-            if "balrog" in nombre_lower:
-                nombre_limpio = "Balrog"
-            elif "electrical" in nombre_lower or "execution" in nombre_lower:
-                nombre_limpio = "Electrical"
-            else:
-                for oficial in NOMBRES_OFICIALES_JEFES:
-                    if oficial.lower() in nombre_lower:
-                        nombre_limpio = oficial
-                        break
-
-            if not nombre_limpio:
-                continue  # Si no está en los permitidos, se ignora
-
-            es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
-
-            match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
-            
-            # Extraer todas las horas del rango y tomar la PRIMERA (inicio de ventana)
-            todas_las_horas = re.findall(r'(\d{1,2})(?::(\d{2}))?', resto)
-            
-            hora_str = "00:00"
-            tiene_tiempo = False
-
-            if todas_las_horas:
-                tiene_tiempo = True
-                h1_num, m1_str = todas_las_horas[0]
-                h1 = int(h1_num)
-                m1 = int(m1_str) if m1_str else 0
-                hora_str = f"{h1:02d}:{m1:02d}"
-
-            if match_fecha:
-                dia = int(match_fecha.group(1))
-                mes = int(match_fecha.group(2))
-                fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
-                tiempo_str_estandar = f"{fecha_str} {hora_str}"
-                try:
-                    dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
-                except ValueError:
-                    dt = datetime.max.replace(tzinfo=zona_actual)
-            elif tiene_tiempo and not es_vivo:
-                # Si NO trae fecha explícita, asume automáticamente que es HOY
-                try:
-                    h, m = map(int, hora_str.split(':'))
-                    dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
-                    tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
-                except ValueError:
-                    dt = datetime.max.replace(tzinfo=zona_actual)
-                    tiempo_str_estandar = "-"
-            else:
-                dt = datetime.max.replace(tzinfo=zona_actual)
-                tiempo_str_estandar = "-"
-
-            if tiempo_str_estandar == "-" and not es_vivo:
-                continue
-
-            tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
-
-            registros.append({
-                "nombre": nombre_limpio,
-                "tiempo_str": tiempo_final_registro,
-                "estado": "VIVO" if es_vivo else "PROGRAMADO",
-                "es_vivo": es_vivo,
-                "datetime": dt
-            })
+                idx += 1
 
         return registros
     except Exception as e_parse:
@@ -402,7 +402,6 @@ def _consolidar_y_ordenar_registros(registros):
 
         lista_final = list(unicos.values())
         
-        # Ordenamiento seguro ante nulos o tipos extraños
         registros_ordenados = sorted(
             lista_final, 
             key=lambda x: (
