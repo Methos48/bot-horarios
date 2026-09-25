@@ -36,7 +36,7 @@ except ImportError:
 
 logger = logging.getLogger("EntradaPagina")
 
-# Lista oficial de jefes permitidos
+# Lista oficial de jefes permitidos (Barakiel removido para que no sea procesado)
 NOMBRES_OFICIALES_JEFES = [
     "Valakas",
     "Balrog",
@@ -50,8 +50,7 @@ NOMBRES_OFICIALES_JEFES = [
     "Fafureon",
     "Queen Ant",
     "Freya",
-    "Zariche",
-    "Flame of Splendor Barakiel"
+    "Zariche"
 ]
 
 def _obtener_zona_horaria():
@@ -235,9 +234,9 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
     
     prompt = (
         "Analiza esta imagen de Raid Bosses de Lineage II. "
-        "Devuelve un arreglo JSON estricto con los jefes encontrados. Cada objeto debe tener:\n"
-        "- \"nombre\": Nombre exacto del jefe (ej: \"Balrog\", \"Orfen\", \"Flame of Splendor Barakiel\", \"Electrical\", etc.)\n"
-        "- \"tiempo_str\": La línea completa de horario o estado (ej: \"VIVO\", \"Entre 03:30 y 04 hs (ARG)\", \"Sabado 26/09 entre 11:30 y 12 hs (ARG)\").\n"
+        "Devuelve un arreglo JSON estricto con los jefes encontrados (ignora por completo a Flame of Splendor Barakiel o Barakiel si aparecen). Cada objeto válido debe tener:\n"
+        "- \"nombre\": Nombre exacto del jefe (ej: \"Balrog\", \"Orfen\", \"Electrical\", etc.)\n"
+        "- \"tiempo_str\": La línea completa de horario o estado.\n"
         "Si una línea no contiene datos válidos o es un título, ignórala. Responde SOLO con el JSON válido."
     )
     
@@ -273,8 +272,8 @@ def _normalizar_registro(nombre_crudo, resto, zona_actual):
 
     nombre_lower = nombre_crudo.lower()
 
-    # Regla de Exclusión Barakiel
-    if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
+    # 🚫 REGLA DE EXCLUSIÓN: Descartar por completo cualquier variante de Barakiel
+    if "barakiel" in nombre_lower:
         return None
 
     # Mapeo oficial
@@ -298,7 +297,7 @@ def _normalizar_registro(nombre_crudo, resto, zona_actual):
 
     match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
 
-    # 🛠️ FIX CLAVE: Eliminar la fecha del resto antes de extraer las horas
+    # Eliminar la fecha del resto antes de extraer las horas
     resto_sin_fecha = re.sub(r'\d{1,2}/\d{1,2}', '', resto)
     todas_las_horas = re.findall(r'(\d{1,2})(?::(\d{2}))?', resto_sin_fecha)
 
