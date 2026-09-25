@@ -432,9 +432,6 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            # Distribuir los datos normales web (excluyendo la tabla épica que va a su propia memoria)
-            r60_plus_ web, nuevos_r60_menos = clasificar_y_distribuir_items_web(t1 + t2) if 'clasificar_y_distribuir_items_web' in globals() else ([], [])
-            # Nota: Manteniendo la estructura original de clasificación web estándar:
             def clasificar_local(lista_items):
                 r_plus, r_minus = [], []
                 wh_plus = {"asedio", "p v p", "x9", "x 9", "foto mes", "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica", "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"}
@@ -523,7 +520,6 @@ async def on_message(message):
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
                     if nombre:
-                        # Reseteamos el indicador 'fue_vivo' solo para los de la imagen si cargan manual
                         if nombre in JEFES_EPICOS_IMAGEN:
                             reg["fue_vivo"] = False
                         dict_combinado[nombre] = reg
