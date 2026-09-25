@@ -81,85 +81,36 @@ if GEMINI_DISPONIBLE:
 
 async def procesar_mensaje_imagenes(message):
     """
-    Procesa las imágenes adjuntas con un sistema blindado de 3 capas.
+    Procesa las imágenes adjuntas en paralelo (independientemente del orden en que se suban)
+    mediante un sistema blindado de 3 capas.
     """
     if not message or not getattr(message, "attachments", None):
         return []
 
-    todos_los_registros = []
-    imagenes_procesadas_con_exito = False
-
+    # Filtrar solo archivos de imagen válidos
+    attachments_validos = []
     for attachment in message.attachments:
-        try:
-            filename = getattr(attachment, "filename", "desconocido").lower()
-            ext = filename.split('.')[-1] if '.' in filename else ''
-            
-            if ext not in ['png', 'jpg', 'jpeg', 'webp']:
-                continue
+        filename = getattr(attachment, "filename", "desconocido").lower()
+        ext = filename.split('.')[-1] if '.' in filename else ''
+        if ext in ['png', 'jpg', 'jpeg', 'webp']:
+            attachments_validos.append((attachment, ext))
 
-            logger.info(f"🖼️ [Blindado] Procesando imagen: {filename}")
-            
-            try:
-                imagen_bytes_original = await attachment.read()
-            except Exception as e_dl:
-                logger.error(f"❌ Error descargando adjunto {filename}: {e_dl}")
-                continue
+    if not attachments_validos:
+        return []
 
-            if not imagen_bytes_original:
-                continue
+    # Procesar todas las imágenes en paralelo usando asyncio.gather para máxima velocidad y orden caótico soportado
+    tareas = [_procesar_una_imagen_individual(att, ext) for att, ext in attachments_validos]
+    resultados_parciales = await asyncio.gather(*tareas)
 
-            # 🚀 Preprocesamiento optimizado para texto rojo/verde y fuentes pixeladas
-            imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
-            
-            mime_map = {
-                'png': 'image/png',
-                'jpg': 'image/jpeg',
-                'jpeg': 'image/jpeg',
-                'webp': 'image/webp'
-            }
-            mime_type = mime_map.get(ext, 'image/png')
-            
-            registros_imagen = []
+    todos_los_registros = []
+    alguna_procesada_exito = False
 
-            # --- CAPA 1: OCR Local con Tesseract ---
-            if OCR_LOCAL_DISPONIBLE:
-                try:
-                    logger.info("🔍 [Capa 1] Ejecutando OCR Local (Tesseract)...")
-                    registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
-                except Exception as e_ocr:
-                    logger.warning(f"⚠️ Capa 1 falló (Tesseract): {e_ocr}")
+    for registros_imagen in resultados_parciales:
+        if registros_imagen:
+            todos_los_registros.extend(registros_imagen)
+            alguna_procesada_exito = True
 
-            # --- CAPA 2: Respaldo heurístico por Regex sobre Tesseract ---
-            if not registros_imagen and OCR_LOCAL_DISPONIBLE:
-                try:
-                    logger.info("🔄 [Capa 2] Activando Respaldo Heurístico por Regex...")
-                    img_pil = Image.open(io.BytesIO(imagen_bytes))
-                    texto_crudo_tesseract = pytesseract.image_to_string(img_pil)
-                    registros_imagen = _procesar_capa_2_emergencia(texto_crudo_tesseract)
-                except Exception as e_reg:
-                    logger.warning(f"⚠️ Capa 2 falló (Regex): {e_reg}")
-
-            # --- CAPA 3: Gemini (Respaldo Final en la nube) ---
-            if not registros_imagen and GEMINI_DISPONIBLE and client:
-                intentos = 0
-                max_intentos = 2
-                while not registros_imagen and intentos < max_intentos:
-                    intentos += 1
-                    try:
-                        logger.info(f"🤖 [Capa 3] Activando Respaldo Gemini - Intento {intentos}...")
-                        registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
-                    except Exception as e_gemini:
-                        logger.warning(f"⚠️ Intento {intentos}: Capa 3 falló (Gemini): {e_gemini}")
-                        await asyncio.sleep(1)
-
-            if registros_imagen:
-                todos_los_registros.extend(registros_imagen)
-                imagenes_procesadas_con_exito = True
-
-        except Exception as e_img:
-            logger.error(f"❌ Error crítico manejando imagen individual: {e_img}", exc_info=True)
-
-    if imagenes_procesadas_con_exito and todos_los_registros:
+    if alguna_procesada_exito and todos_los_registros:
         try:
             await message.delete()
             logger.info("🗑️ Mensaje con imágenes eliminado limpiamente del canal.")
@@ -167,6 +118,69 @@ async def procesar_mensaje_imagenes(message):
             logger.warning(f"⚠️ No se pudo eliminar el mensaje original: {e_del}")
 
     return _consolidar_y_ordenar_registros(todos_los_registros)
+
+
+async def _procesar_una_imagen_individual(attachment, ext):
+    """
+    Procesa una única imagen aplicando las 3 capas de respaldo (Tesseract -> Regex -> Gemini).
+    """
+    filename = getattr(attachment, "filename", "desconocido").lower()
+    logger.info(f"🖼️ [Blindado] Procesando imagen: {filename}")
+    
+    try:
+        imagen_bytes_original = await attachment.read()
+    except Exception as e_dl:
+        logger.error(f"❌ Error descargando adjunto {filename}: {e_dl}")
+        return []
+
+    if not imagen_bytes_original:
+        return []
+
+    # Preprocesamiento optimizado para texto rojo/verde y fuentes pixeladas
+    imagen_bytes = await asyncio.to_thread(_preprocesar_imagen, imagen_bytes_original)
+    
+    mime_map = {
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'webp': 'image/webp'
+    }
+    mime_type = mime_map.get(ext, 'image/png')
+    
+    registros_imagen = []
+
+    # --- CAPA 1: OCR Local con Tesseract ---
+    if OCR_LOCAL_DISPONIBLE:
+        try:
+            logger.info(f"🔍 [Capa 1] Ejecutando OCR Local en {filename}...")
+            registros_imagen = await asyncio.to_thread(_procesar_con_tesseract_local, imagen_bytes)
+        except Exception as e_ocr:
+            logger.warning(f"⚠️ Capa 1 falló (Tesseract) en {filename}: {e_ocr}")
+
+    # --- CAPA 2: Respaldo heurístico por Regex sobre Tesseract ---
+    if not registros_imagen and OCR_LOCAL_DISPONIBLE:
+        try:
+            logger.info(f"🔄 [Capa 2] Activando Respaldo Heurístico por Regex en {filename}...")
+            img_pil = Image.open(io.BytesIO(imagen_bytes))
+            texto_crudo_tesseract = pytesseract.image_to_string(img_pil)
+            registros_imagen = _procesar_capa_2_emergencia(texto_crudo_tesseract)
+        except Exception as e_reg:
+            logger.warning(f"⚠️ Capa 2 falló (Regex) en {filename}: {e_reg}")
+
+    # --- CAPA 3: Gemini (Respaldo Final en la nube) ---
+    if not registros_imagen and GEMINI_DISPONIBLE and client:
+        intentos = 0
+        max_intentos = 2
+        while not registros_imagen and intentos < max_intentos:
+            intentos += 1
+            try:
+                logger.info(f"🤖 [Capa 3] Activando Respaldo Gemini en {filename} - Intento {intentos}...")
+                registros_imagen = await asyncio.to_thread(_procesar_con_gemini, imagen_bytes, mime_type)
+            except Exception as e_gemini:
+                logger.warning(f"⚠️ Intento {intentos}: Capa 3 falló (Gemini) en {filename}: {e_gemini}")
+                await asyncio.sleep(1)
+
+    return registros_imagen
 
 
 def _preprocesar_imagen(imagen_bytes):
@@ -187,7 +201,6 @@ def _preprocesar_imagen(imagen_bytes):
         gray = img.convert('L')
         
         # 3. Umbral (Thresholding): El fondo oscuro pasa a blanco y el texto brillante a negro
-        # Texto rojo/verde/amarillo tiene valores > 35 en 'L', el fondo oscuro es < 25
         threshold = 35
         fn = lambda x: 0 if x > threshold else 255
         binarizada = gray.point(fn, mode='1')
