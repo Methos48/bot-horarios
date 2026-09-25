@@ -148,14 +148,17 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
         nombre_filtro_log = "antes"
+        canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     elif tipo_filtro == "salio":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_SALIO
         nombre_filtro_log = "salio"
+        canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     else:
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "principal"
+        # ⚠️ Aquí usamos el nuevo canal para las publicaciones principales (PUBLICAR_RAIDS)
+        canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
     
-    canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     fuente_bankgothic = getattr(config, "FUENTE_BANKGOTHIC", None)
     
     if not canal_id:
