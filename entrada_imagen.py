@@ -223,7 +223,7 @@ def _procesar_con_gemini(imagen_bytes, mime_type):
     )
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type), prompt]
         )
         if response and hasattr(response, "text"):
