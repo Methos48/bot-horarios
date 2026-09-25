@@ -1,3 +1,6 @@
+Aquí tienes el código actualizado con la nueva variable MENSAJE_CLAN añadida de forma segura usando la función _get_int_env (igual que el resto de los canales):
+
+Python
 import os
 
 # Zona horaria principal (por defecto Argentina, sobreescrita por entorno si existe)
@@ -26,6 +29,9 @@ RAID_CHANNEL_ID = _get_int_env("RAID")
 
 # Lectura directa de la variable ENVIAR_MENSAJE
 ENVIAR_MENSAJE_CHANNEL_ID = _get_int_env("ENVIAR_MENSAJE")
+
+# --- NUEVA VARIABLE ---
+MENSAJE_CLAN_CHANNEL_ID = _get_int_env("MENSAJE_CLAN")
 
 # --- VARIABLES DE COMPATIBILIDAD PARA EVITAR ERRORES DE CANAL FALTANTE ---
 if not HORARIO_CHANNEL_ID:
@@ -180,7 +186,6 @@ ROJO_RAID_GOLKONDA = os.path.join(DIR_ROJO_RAID, "golkonda.png")
 ROJO_RAID_HEKATON = os.path.join(DIR_ROJO_RAID, "hekaton.png")
 ROJO_RAID_ORFEN = os.path.join(DIR_ROJO_RAID, "orfen.png")
 ROJO_RAID_QUEENANT = os.path.join(DIR_ROJO_RAID, "queenant.png")
-# --- CORRECCIÓN APLICADA: Cambio de 'ROID_RAID_QUEENSHYEED' a 'ROJO_RAID_QUEENSHYEED' ---
 ROJO_RAID_QUEENSHYEED = os.path.join(DIR_ROJO_RAID, "queenshyeed.png")
 ROJO_RAID_URUKA = os.path.join(DIR_ROJO_RAID, "uruka.png")
 ROJO_RAID_VALAKASH = os.path.join(DIR_ROJO_RAID, "valakash.png")
