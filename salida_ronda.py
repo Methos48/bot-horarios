@@ -16,24 +16,12 @@ def _hex_a_rgb(hex_str):
 
 def _es_jefe_especial(nombre):
     """
-    Verifica si el jefe requiere la resta de 30 minutos (Valakas, Antharas, Fafurion).
+    Verifica si el jefe requiere la resta de 30 minutos (Valakas, Antharas, Fafurion/Fafureon).
     """
     if not nombre:
         return False
     n_lower = nombre.lower().strip()
     return n_lower in ["valakas", "antharas", "fafurion", "fafureon"]
-
-def _es_epico_o_superior(nombre):
-    """
-    Define cuáles jefes/eventos son los únicos que pueden pasar a estado VIVO automáticamente 
-    cuando llega su hora.
-    """
-    if not nombre:
-        return False
-    n_lower = nombre.lower().strip()
-    
-    excepciones_exactas = ["core", "orfen", "queen ant", "zaken", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"]
-    return any(exc in n_lower for exc in excepciones_exactas) or any(esp in n_lower for esp in ["valakas", "antharas", "fafurion", "fafureon", "baium", "frintezza", "freya", "zariche"])
 
 def _filtrar_y_clasificar(jefe):
     """
@@ -110,7 +98,6 @@ def _obtener_color_fila_entera(nombre, es_vivo):
     if n_lower in verdes_exactos:
         return True, _hex_a_rgb("#40A309")
 
-    # NUEVA REGLA: Si está VIVO y no pertenece a los anteriores, fondo naranja claro
     if es_vivo:
         return True, _hex_a_rgb("#FFB366")
 
@@ -118,9 +105,9 @@ def _obtener_color_fila_entera(nombre, es_vivo):
 
 async def ejecutar(bot_instance, datos_horario):
     """
-    Función principal llamada desde main.py
+    Función principal llamada desde main.py. Actúa como renderizador ciego de la data.
     """
-    logger.info("⚙️ Ejecutando salida_ronda: Procesando filtros y lógica de ordenamiento por estados...")
+    logger.info("⚙️ Ejecutando salida_ronda: Renderizando datos recibidos...")
     
     canal_id = getattr(config, "RONDA_CHANNEL_ID", None)
     ruta_plantilla = getattr(config, "PLANTILLA_RONDA", None)
@@ -147,38 +134,46 @@ async def ejecutar(bot_instance, datos_horario):
         except Exception as err_del:
             logger.warning(f"⚠️ No se pudo eliminar el mensaje anterior en salida_ronda: {err_del}")
 
-        # 2. FILTRAR Y PROCESAR DATOS UNIFICADOS
+        # 2. FILTRAR Y PREPARAR DATOS
         datos_filtrados = [j for j in datos_horario if _filtrar_y_clasificar(j)]
         datos_procesados = []
-
-        ahora_actual = datetime.now(ZONA_ARGENTINA)
 
         for jefe in datos_filtrados:
             registro = jefe.copy()
             nombre = registro.get("nombre", "")
-            estado = registro.get("estado", "").upper()
-            tiempo_str = registro.get("tiempo_str", "-")
+            tiempo_str = str(registro.get("tiempo_str", "-")).strip()
+            estado = str(registro.get("estado", "")).upper()
             
-            es_vivo_fuente = (estado in ["VIVO", "ALIVE"] or registro.get("es_vivo", False))
+            # Confiamos en la etiqueta de vivo que ya trae el main o la fuente
+            es_vivo = (estado in ["VIVO", "ALIVE"] or 
+                       tiempo_str.upper() in ["VIVO", "ALIVE"] or 
+                       registro.get("es_vivo", False))
             
-            dt_obj = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
-            if tiempo_str and tiempo_str != "-":
-                try:
-                    dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                    if _es_jefe_especial(nombre):
-                        dt_obj = dt_obj - timedelta(minutes=30)
-                except ValueError:
-                    pass
-
-            es_epico = _es_epico_o_superior(nombre)
+            registro["es_vivo"] = es_vivo
             
-            if es_vivo_fuente or (es_epico and dt_obj != datetime.max.replace(tzinfo=ZONA_ARGENTINA) and dt_obj <= ahora_actual):
-                registro["es_vivo"] = True
+            if es_vivo:
                 registro["tiempo_str_final"] = "VIVO"
                 registro["datetime"] = datetime.min.replace(tzinfo=ZONA_ARGENTINA)
             else:
-                registro["es_vivo"] = False
+                dt_obj = registro.get("datetime")
+                if not dt_obj or not isinstance(dt_obj, datetime):
+                    try:
+                        if tiempo_str and tiempo_str not in ["-", "None"]:
+                            dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                        else:
+                            dt_obj = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
+                    except ValueError:
+                        dt_obj = datetime.max.replace(tzinfo=ZONA_ARGENTINA)
+                
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=ZONA_ARGENTINA)
+
+                # Aplicar resta de 30 min si es jefe especial de horario
+                if _es_jefe_especial(nombre) and dt_obj != datetime.max.replace(tzinfo=ZONA_ARGENTINA):
+                    dt_obj = dt_obj - timedelta(minutes=30)
+
                 registro["datetime"] = dt_obj
+                
                 if dt_obj != datetime.max.replace(tzinfo=ZONA_ARGENTINA):
                     registro["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                 else:
@@ -186,9 +181,7 @@ async def ejecutar(bot_instance, datos_horario):
 
             datos_procesados.append(registro)
 
-        # ==========================================
-        # 3. ORDENAR ESTRICTO PARA VIVOS (Rojos -> Azules -> Verdes -> Comunes) Y LUEGO CRONOLÓGICOS
-        # ==========================================
+        # 3. ORDENAR ESTRICTO (Vivos primero según jerarquía, luego cronológicos)
         rojos_set = {"valakas", "antharas", "fafurion", "fafureon"}
         azules_set = {"core", "orfen", "baium", "zaken", "freya", "zariche", "frintezza", "queen ant", "asedio", "p v p", "pvp", "x9", "x 9", "foto mes", "electrical", "balrog"}
         verdes_set = {"decarbia", "hekaton", "queen shyeed"}
@@ -208,7 +201,7 @@ async def ejecutar(bot_instance, datos_horario):
                 elif nombre in verdes_set:
                     prioridad_vivo = 3
                 else:
-                    prioridad_vivo = 4 # Vivos comunes
+                    prioridad_vivo = 4
                 return (0, prioridad_vivo, nombre)
             else:
                 return (1, 0, dt)
@@ -276,7 +269,6 @@ async def ejecutar(bot_instance, datos_horario):
                 rect_box = [x_n - 4, y_centro - 10, x_h + 50, y_centro + 10]
                 draw.rectangle(rect_box, fill=color_fondo_especial)
                 
-                # Si el fondo es naranja claro (#FFB366), usamos texto negro para mantener la legibilidad, de lo contrario blanco
                 if color_fondo_especial == _hex_a_rgb("#FFB366"):
                     color_texto_fila = _hex_a_rgb("#000000")
                     color_hora = _hex_a_rgb("#000000")
@@ -312,7 +304,7 @@ async def ejecutar(bot_instance, datos_horario):
         archivo_discord = discord.File(nombre_archivo_salida, filename="horario_ronda.png")
         await channel.send(file=archivo_discord)
         
-        logger.info("✅ Imagen de salida_ronda generada correctamente con nuevo orden y recuadro naranja para vivos comunes.")
+        logger.info("✅ Imagen de salida_ronda generada correctamente respetando la data de main.")
 
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_ronda: {e}")
