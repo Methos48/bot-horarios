@@ -24,12 +24,10 @@ HORARIO_CHANNEL_ID = _get_int_env("HORARIO")
 LOW_CHANNEL_ID = _get_int_env("RONDA_LOW")
 RAID_CHANNEL_ID = _get_int_env("RAID")
 
-# --- CAMBIO APLICADO: Lectura directa de la variable ENVIAR_MENSAJE ---
+# Lectura directa de la variable ENVIAR_MENSAJE
 ENVIAR_MENSAJE_CHANNEL_ID = _get_int_env("ENVIAR_MENSAJE")
 
 # --- VARIABLES DE COMPATIBILIDAD PARA EVITAR ERRORES DE CANAL FALTANTE ---
-# Si en el entorno o en otras partes se busca HORARIO y viene vacío,
-# se asigna por defecto a los canales correspondientes ya existentes.
 if not HORARIO_CHANNEL_ID:
     HORARIO_CHANNEL_ID = _get_int_env("HORARIO_CHANNEL_ID") or MA_CHANNEL_ID
 
@@ -53,7 +51,7 @@ DIR_MORADO_CASTILLO = os.path.join(DIR_MORADO, "castillo")
 DIR_MORADO_RAID = os.path.join(DIR_MORADO, "raid")
 DIR_ROJO_CASTILLO = os.path.join(DIR_ROJO, "castillo")
 DIR_ROJO_RAID = os.path.join(DIR_ROJO, "raid")
-DIR_RAID_PRINCIPAL = os.path.join(DIR_RAID, "raid") # Carpeta imagen/raid
+DIR_RAID_PRINCIPAL = os.path.join(DIR_RAID, "raid")  # Carpeta imagen/raid
 
 # Archivos de Fuentes
 FUENTE_APTOS = os.path.join(DIR_FUENTES, "Aptos Narrow.ttf")
@@ -182,7 +180,8 @@ ROJO_RAID_GOLKONDA = os.path.join(DIR_ROJO_RAID, "golkonda.png")
 ROJO_RAID_HEKATON = os.path.join(DIR_ROJO_RAID, "hekaton.png")
 ROJO_RAID_ORFEN = os.path.join(DIR_ROJO_RAID, "orfen.png")
 ROJO_RAID_QUEENANT = os.path.join(DIR_ROJO_RAID, "queenant.png")
-ROID_RAID_QUEENSHYEED = os.path.join(DIR_ROJO_RAID, "queenshyeed.png")
+# --- CORRECCIÓN APLICADA: Cambio de 'ROID_RAID_QUEENSHYEED' a 'ROJO_RAID_QUEENSHYEED' ---
+ROJO_RAID_QUEENSHYEED = os.path.join(DIR_ROJO_RAID, "queenshyeed.png")
 ROJO_RAID_URUKA = os.path.join(DIR_ROJO_RAID, "uruka.png")
 ROJO_RAID_VALAKASH = os.path.join(DIR_ROJO_RAID, "valakash.png")
 ROJO_RAID_VALAKASM = os.path.join(DIR_ROJO_RAID, "valakasm.png")
