@@ -38,6 +38,12 @@ HORA_OFFSET_WEB = 1
 # --- ARCHIVO DE PERSISTENCIA JSON ---
 ARCHIVO_JSON = "jefes_activos.json"
 
+# --- LISTA OFICIAL DE JEFES ÉPICOS (Los de la imagen) ---
+JEFES_EPICOS_IMAGEN = {
+    "antharas", "fafureon", "freya", "frintezza", 
+    "valakas", "baium", "zaken", "core", "orfen", "queen ant"
+}
+
 # --- DICCIONARIO DE NIVELES EXACTOS PARA ENTRADAS MANUALES ---
 NIVELES_JEFE_MANUAL = {
     "valakas": 85,
@@ -66,12 +72,10 @@ def asignar_nivel_manual(lista_jefes):
     for item in lista_jefes:
         nombre_limpio = item.get("nombre", "").strip().lower()
         
-        # Si es un evento especial, limpiar el nivel para que salga en blanco
         if nombre_limpio in NIVELES_VACIOS_EXTRA:
             item["nivel"] = ""
             continue
 
-        # Buscar en el diccionario de niveles definidos
         encontrado = False
         for clave, nivel in NIVELES_JEFE_MANUAL.items():
             if clave in nombre_limpio:
@@ -79,7 +83,6 @@ def asignar_nivel_manual(lista_jefes):
                 encontrado = True
                 break
         
-        # Si no está en ninguna lista, por defecto asignar 85
         if not encontrado:
             if "nivel" not in item or item["nivel"] is None:
                 item["nivel"] = 85
@@ -188,32 +191,6 @@ def guardar_memoria_a_json_completa():
     except Exception as e:
         logger.error(f"Error al guardar memoria en JSON: {e}")
 
-def clasificar_y_distribuir_items_web(lista_items):
-    """Clasifica los ítems provenientes de la página web en raid_60_plus y raid_60_menos."""
-    r60_plus = []
-    r60_menos = []
-
-    wh_r60_plus_extra = {
-        "asedio", "p v p", "x9", "x 9", "foto mes", 
-        "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica",
-        "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"
-    }
-
-    for item in lista_items:
-        nombre = str(item.get("nombre", "")).strip().lower()
-        try:
-            nivel_str = str(item.get("nivel", 85)).strip()
-            nivel = int(nivel_str) if nivel_str else 85
-        except Exception:
-            nivel = 85
-
-        if nombre in wh_r60_plus_extra or nivel >= 60:
-            r60_plus.append(item)
-        else:
-            r60_menos.append(item)
-
-    return limpiar_duplicados_por_nombre(r60_plus), limpiar_duplicados_por_nombre(r60_menos)
-
 def aplicar_offset_web(lista_jefes, offset_horas):
     if offset_horas == 0 or not lista_jefes:
         return lista_jefes
@@ -319,31 +296,73 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_limpia, key=clave_orden)
 
 # ==============================================================================
-# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Corregido y separado)
+# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Exclusivo para la lista de la imagen)
 # ==============================================================================
 async def disparar_salidas_por_cambios(bot_instance):
     """
-    Controlado por el ciclo web. Envía de forma independiente:
-    - salida_ronda: exclusivamente la combinación de epics y la tabla 60+
-    - salida_low: exclusivamente la tabla de raids menores a 60
+    Controlado por el ciclo web:
+    - Cruza los datos con la tabla de épicos web (`vivo_o_muerto`).
+    - SOLO APLICA la lógica especial de VIVO -> Borrado para los jefes de JEFES_EPICOS_IMAGEN.
+    - Todos los demás raids normales siguen comportándose exactamente igual que antes.
     """
     logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
     try:
-        vivo_muerto_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("vivo_o_muerto", []))
-        r60_plus_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_plus", []))
-        r60_menos_ord = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
+        # 1. Crear un mapa rápido con los jefes que están VIVOS en la web actualmente
+        mapa_vivos_web = {}
+        for item_epic in MEMORIA_JEFES.get("vivo_o_muerto", []):
+            nombre_epic = str(item_epic.get("nombre", "")).strip().lower()
+            tiempo_epic = str(item_epic.get("tiempo_str", "")).lower()
+            estado_epic = str(item_epic.get("estado", "")).lower()
+            
+            es_vivo = "alive" in tiempo_epic or "vivo" in tiempo_epic or estado_epic in ["vivo", "alive"] or item_epic.get("es_vivo", False)
+            if es_vivo:
+                mapa_vivos_web[nombre_epic] = True
 
-        # 1. Lista exclusiva para ronda (Epics + Raids de nivel 60+)
-        datos_ronda = vivo_muerto_ord + r60_plus_ord
+        # 2. Procesar la lista de la ronda (`raid_60_plus`)
+        r60_plus_original = MEMORIA_JEFES.get("raid_60_plus", [])
+        r60_plus_actualizada = []
 
-        # 2. Lista exclusiva para low (Raids menores a 60)
-        datos_low = r60_menos_ord
+        for item_raid in r60_plus_original:
+            item_copia = item_raid.copy()
+            nombre_raid = str(item_copia.get("nombre", "")).strip().lower()
+            
+            # Verificamos si este jefe pertenece a los de la imagen
+            es_epico_imagen = nombre_raid in JEFES_EPICOS_IMAGEN
 
-        # Ejecutar las salidas de forma completamente independiente sin cruzar listas
-        await salida_ronda.ejecutar(bot_instance, ordenar_y_priorizar(datos_ronda))
-        await salida_low.ejecutar(bot_instance, ordenar_y_priorizar(datos_low))
+            if es_epico_imagen:
+                # --- LÓGICA EXCLUSIVA PARA LOS JEFES DE LA IMAGEN ---
+                if nombre_raid in mapa_vivos_web:
+                    item_copia["tiempo_str"] = "VIVO"
+                    item_copia["estado"] = "VIVO"
+                    item_copia["es_vivo"] = True
+                    item_copia["fue_vivo"] = True  # Ya estuvo activo
+                    item_copia["datetime"] = datetime.min.replace(tzinfo=ZONA_ARGENTINA)
+                    r60_plus_actualizada.append(item_copia)
+                else:
+                    fue_vivo_antes = item_copia.get("fue_vivo", False)
+                    if fue_vivo_antes:
+                        # Ya estuvo vivo y la web lo retiró (abatido): se borra de la ronda
+                        logger.info(f"💀 El jefe épico '{nombre_raid}' fue abatido y la web lo retiró. Eliminando de la ronda.")
+                        continue
+                    else:
+                        # Es un horario cargado manualmente de un épico que aún no llega a vivo
+                        r60_plus_actualizada.append(item_copia)
+            else:
+                # --- PARA TODOS LOS DEMÁS RAIDS: COMPORTAMIENTO NORMAL ORIGINAL ---
+                r60_plus_actualizada.append(item_copia)
+
+        # Actualizar memoria y guardar
+        MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(r60_plus_actualizada)
+        guardar_memoria_a_json_completa()
+
+        datos_ronda = ordenar_y_priorizar(MEMORIA_JEFES["raid_60_plus"])
+        datos_low = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
+
+        # Ejecutar las salidas
+        await salida_ronda.ejecutar(bot_instance, datos_ronda)
+        await salida_low.ejecutar(bot_instance, datos_low)
         
-        logger.info("✅ Salidas automáticas web ejecutadas con éxito (listas separadas correctamente).")
+        logger.info("✅ Salidas automáticas web ejecutadas con éxito.")
     except Exception as e:
         logger.error(f"Error al disparar salidas web: {e}")
 
@@ -351,11 +370,6 @@ async def disparar_salidas_por_cambios(bot_instance):
 # 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
 # ==============================================================================
 async def disparar_salidas_manuales(bot_instance, registros_ingresados):
-    """
-    Controlado exclusivamente por entrada_texto y entrada_imagen. Envía:
-    - salida_ma: solo VALAKAS, ANTHARAS y FAFUREON de los registros ingresados.
-    - salida_horario: toda la información recibida EXCEPTO balrog y electrical.
-    """
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
         wh_ma = {"valakas", "antharas", "fafureon"}
@@ -386,9 +400,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
 # 🚀 BUCLE PERMANENTE: SALIDA RAID AUTOMÁTICA
 # ==============================================================================
 async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
-    """
-    Revisa permanentemente el archivo JSON de forma autónoma cada X segundos para las alertas de Raid.
-    """
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     await bot_instance.wait_until_ready()
 
@@ -408,7 +419,6 @@ async def on_ready():
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
         
-    # LANZA EL MONITOREO AUTOMÁTICO DE RAIDS EN SEGUNDO PLANO
     bot.loop.create_task(iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
 
 @tasks.loop(seconds=60)
@@ -422,7 +432,25 @@ async def auto_monitor_web():
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
           
         if t1 or t2 or t_epic:
-            nuevos_r60_plus_web, nuevos_r60_menos = clasificar_y_distribuir_items_web(t1 + t2)
+            # Distribuir los datos normales web (excluyendo la tabla épica que va a su propia memoria)
+            r60_plus_ web, nuevos_r60_menos = clasificar_y_distribuir_items_web(t1 + t2) if 'clasificar_y_distribuir_items_web' in globals() else ([], [])
+            # Nota: Manteniendo la estructura original de clasificación web estándar:
+            def clasificar_local(lista_items):
+                r_plus, r_minus = [], []
+                wh_plus = {"asedio", "p v p", "x9", "x 9", "foto mes", "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica", "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"}
+                for item in lista_items:
+                    nombre = str(item.get("nombre", "")).strip().lower()
+                    try:
+                        niv = int(str(item.get("nivel", 85)).strip() or 85)
+                    except:
+                        niv = 85
+                    if nombre in wh_plus or niv >= 60:
+                        r_plus.append(item)
+                    else:
+                        r_minus.append(item)
+                return limpiar_duplicados_por_nombre(r_plus), limpiar_duplicados_por_nombre(r_minus)
+
+            nuevos_r60_plus_web, nuevos_r60_menos = clasificar_local(t1 + t2)
             nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
 
             vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
@@ -495,6 +523,9 @@ async def on_message(message):
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
                     if nombre:
+                        # Reseteamos el indicador 'fue_vivo' solo para los de la imagen si cargan manual
+                        if nombre in JEFES_EPICOS_IMAGEN:
+                            reg["fue_vivo"] = False
                         dict_combinado[nombre] = reg
 
                 MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
