@@ -435,11 +435,11 @@ async def auto_monitor_web():
     try:
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
         t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
-          
+         
         t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
         t2 = aplicar_offset_web(t2_crudo, HORA_OFFSET_WEB)
         t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
-          
+         
         if t1 or t2 or t_epic:
             def clasificar_local(lista_items):
                 r_plus, r_minus = [], []
@@ -462,7 +462,7 @@ async def auto_monitor_web():
             vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
             vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
             vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
-              
+             
             dict_r60_plus_actual = {str(i.get("nombre","")).lower(): i for i in vieja_r60_plus}
             for item in nuevos_r60_plus_web:
                 dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
@@ -540,7 +540,7 @@ async def on_message(message):
 
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
-               
+                
                 await disparar_salidas_manuales(bot, nuevos_registros)
                 await disparar_salida_ronda_si_cambio(bot)
 
