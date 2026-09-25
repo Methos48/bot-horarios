@@ -3,7 +3,7 @@ import os
 # Zona horaria principal (por defecto Argentina, sobreescrita por entorno si existe)
 TZ = os.getenv("TZ", "America/Argentina/Buenos_Aires")
 
-# Credenciales principales y URLs
+# Credenciales principales y URL
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAGUINA_JUEGO = os.getenv("PAGUINA_JUEGO", "https://www.l2sudamerica.com/?page=boss")
