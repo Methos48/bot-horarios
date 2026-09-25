@@ -189,21 +189,28 @@ def _procesar_capa_2_emergencia(texto_crudo):
         return registros
     try:
         zona_actual = _obtener_zona_horaria()
-        lineas = texto_crudo.split('\n')
-        for linea in lineas:
-            if re.search(r'\d{1,2}:\d{2}', linea):
-                partes = re.split(r'[-–|]', linea)
-                if len(partes) >= 2:
-                    nombre = partes[0].strip()
-                    resto = partes[1].strip()
-                    if nombre:
-                        registros.append({
-                            "nombre": nombre,
-                            "tiempo_str": resto,
-                            "estado": "PROGRAMADO",
-                            "es_vivo": False,
-                            "datetime": datetime.now(zona_actual)
-                        })
+        lineas = [l.strip() for l in texto_crudo.split('\n') if l.strip()]
+        
+        i = 0
+        while i < len(lineas) - 1:
+            linea_actual = lineas[i]
+            siguiente_linea = lineas[i+1]
+            
+            if re.search(r'\d{1,2}:\d{2}|\b(vivo|entre|hs|sabado|domingo|lunes|martes|miercoles|jueves|viernes)\b', siguiente_linea, re.IGNORECASE):
+                nombre = linea_actual
+                resto = siguiente_linea
+                
+                es_vivo = "vivo" in resto.lower() or "alive" in resto.lower()
+                registros.append({
+                    "nombre": nombre,
+                    "tiempo_str": resto,
+                    "estado": "VIVO" if es_vivo else "PROGRAMADO",
+                    "es_vivo": es_vivo,
+                    "datetime": datetime.now(zona_actual)
+                })
+                i += 2
+            else:
+                i += 1
     except Exception as e:
         logger.warning(f"⚠️ Error en respaldo Regex: {e}")
     return registros
@@ -241,88 +248,89 @@ def _parsear_texto_crudo(texto_crudo):
         texto_crudo = re.sub(r'```[a-zA-Z]*\s*', '', texto_crudo)
         texto_crudo = re.sub(r'```\s*', '', texto_crudo)
         
-        lineas = texto_crudo.strip().split('\n')
+        lineas = [l.strip() for l in texto_crudo.split('\n') if l.strip()]
         registros = []
         zona_actual = _obtener_zona_horaria()
         ahora_local = datetime.now(zona_actual)
         año_actual = ahora_local.year
 
-        for linea in lineas:
-            try:
-                linea = linea.strip()
-                if not linea or "|" not in linea:
-                    continue
-                    
+        i = 0
+        while i < len(lineas):
+            linea = lineas[i]
+            
+            if "|" in linea:
                 partes = linea.split("|", 1)
-                if len(partes) < 2:
-                    continue
-                    
                 nombre_crudo = partes[0].strip()
                 resto = partes[1].strip()
+                i += 1
+            elif i + 1 < len(lineas) and re.search(r'\d{1,2}:\d{2}|\b(entre|vivo|hs|sabado|domingo|lunes|martes|miercoles|jueves|viernes)\b', lineas[i+1], re.IGNORECASE):
+                nombre_crudo = linea
+                resto = lineas[i+1]
+                i += 2
+            else:
+                i += 1
+                continue
 
-                if not nombre_crudo or resto in ["-", "", "None", "---"]:
-                    continue
+            if not nombre_crudo or resto in ["-", "", "None", "---"]:
+                continue
 
-                nombre_lower = nombre_crudo.lower()
-                if "flame of splendor barakiel" in nombre_lower or "barakiel" in nombre_lower:
-                    continue
-                    
-                if "balrog" in nombre_lower:
-                    nombre_limpio = "Balrog"
-                elif "execution electrical" in nombre_lower or "electrical" in nombre_lower:
-                    nombre_limpio = "Electrical"
-                else:
-                    nombre_limpio = nombre_crudo
-
-                es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
-
-                match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
-                match_hora = re.search(r'(\d{1,2}):(\d{2})', resto)
+            nombre_lower = nombre_crudo.lower()
+            if "barakiel" in nombre_lower and "flame of splendor" not in nombre_lower:
+                continue
                 
-                if not match_hora:
-                    match_hora_simple = re.search(r'(?:entre\s+)?(\d{1,2})', resto, re.IGNORECASE)
-                    hora_str = f"{match_hora_simple.group(1).zfill(2)}:00" if match_hora_simple else "00:00"
-                    tiene_tiempo = bool(match_hora_simple)
-                else:
-                    hora_str = f"{match_hora.group(1).zfill(2)}:{match_hora.group(2)}"
-                    tiene_tiempo = True
+            if "balrog" in nombre_lower:
+                nombre_limpio = "Balrog"
+            elif "execution electrical" in nombre_lower or "electrical" in nombre_lower:
+                nombre_limpio = "Electrical"
+            else:
+                nombre_limpio = nombre_crudo
 
-                if match_fecha:
-                    dia = int(match_fecha.group(1))
-                    mes = int(match_fecha.group(2))
-                    fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
-                    tiempo_str_estandar = f"{fecha_str} {hora_str}"
-                    try:
-                        dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
-                    except ValueError:
-                        dt = datetime.max.replace(tzinfo=zona_actual)
-                elif tiene_tiempo and not es_vivo:
-                    try:
-                        h, m = map(int, hora_str.split(':'))
-                        dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
-                        tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
-                    except ValueError:
-                        dt = datetime.max.replace(tzinfo=zona_actual)
-                        tiempo_str_estandar = "-"
-                else:
+            es_vivo = "alive" in resto.lower() or "vivo" in resto.lower()
+
+            match_fecha = re.search(r'(\d{1,2})/(\d{1,2})', resto)
+            match_hora = re.search(r'(\d{1,2}):(\d{2})', resto)
+            
+            if not match_hora:
+                match_hora_simple = re.search(r'(?:entre\s+)?(\d{1,2})', resto, re.IGNORECASE)
+                hora_str = f"{match_hora_simple.group(1).zfill(2)}:00" if match_hora_simple else "00:00"
+                tiene_tiempo = bool(match_hora_simple)
+            else:
+                hora_str = f"{match_hora.group(1).zfill(2)}:{match_hora.group(2)}"
+                tiene_tiempo = True
+
+            if match_fecha:
+                dia = int(match_fecha.group(1))
+                mes = int(match_fecha.group(2))
+                fecha_str = f"{dia:02d}/{mes:02d}/{año_actual}"
+                tiempo_str_estandar = f"{fecha_str} {hora_str}"
+                try:
+                    dt = datetime.strptime(tiempo_str_estandar, "%d/%m/%Y %H:%M").replace(tzinfo=zona_actual)
+                except ValueError:
+                    dt = datetime.max.replace(tzinfo=zona_actual)
+            elif tiene_tiempo and not es_vivo:
+                try:
+                    h, m = map(int, hora_str.split(':'))
+                    dt = datetime(ahora_local.year, ahora_local.month, ahora_local.day, h, m, tzinfo=zona_actual)
+                    tiempo_str_estandar = dt.strftime("%d/%m/%Y %H:%M")
+                except ValueError:
                     dt = datetime.max.replace(tzinfo=zona_actual)
                     tiempo_str_estandar = "-"
+            else:
+                dt = datetime.max.replace(tzinfo=zona_actual)
+                tiempo_str_estandar = "-"
 
-                if tiempo_str_estandar == "-" and not es_vivo:
-                    continue
-
-                tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
-
-                registros.append({
-                    "nombre": nombre_limpio,
-                    "tiempo_str": tiempo_final_registro,
-                    "estado": "VIVO" if es_vivo else "PROGRAMADO",
-                    "es_vivo": es_vivo,
-                    "datetime": dt
-                })
-            except Exception as e_linea:
-                logger.debug(f"Línea descartada por formato inválido: {e_linea}")
+            if tiempo_str_estandar == "-" and not es_vivo:
                 continue
+
+            tiempo_final_registro = "VIVO" if es_vivo else tiempo_str_estandar
+
+            registros.append({
+                "nombre": nombre_limpio,
+                "tiempo_str": tiempo_final_registro,
+                "estado": "VIVO" if es_vivo else "PROGRAMADO",
+                "es_vivo": es_vivo,
+                "datetime": dt
+            })
 
         return registros
     except Exception as e_parse:
