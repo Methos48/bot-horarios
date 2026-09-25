@@ -1,6 +1,3 @@
-Aquí tienes el código actualizado con la nueva variable MENSAJE_CLAN añadida de forma segura usando la función _get_int_env (igual que el resto de los canales):
-
-Python
 import os
 
 # Zona horaria principal (por defecto Argentina, sobreescrita por entorno si existe)
