@@ -34,9 +34,9 @@ def procesar_y_ordenar_datos(jefes_crudos):
     tabla_ordenada = _ordenar_tabla(jefes_crudos)
 
     # Dividir estrictamente con un máximo de 26 por columna (de arriba hacia abajo)
-    tabla_1 = tabla_ordenada[:26]        # Columna Izquierda (máximo 26)
-    tabla_2 = tabla_ordenada[26:52]      # Columna del Medio (máximo 26 siguientes)
-    tabla_3 = tabla_ordenada[52:78]      # Columna Derecha (máximo 26 siguientes)
+    tabla_1 = tabla_ordenada[:26]         # Columna Izquierda (máximo 26)
+    tabla_2 = tabla_ordenada[26:52]       # Columna del Medio (máximo 26 siguientes)
+    tabla_3 = tabla_ordenada[52:78]       # Columna Derecha (máximo 26 siguientes)
 
     logger.info(f"Datos procesados con éxito. Tabla 1: {len(tabla_1)} jefes | Tabla 2: {len(tabla_2)} jefes | Tabla 3: {len(tabla_3)} jefes")
     return tabla_1, tabla_2, tabla_3
@@ -146,10 +146,10 @@ def generar_imagen_tabla_jefes(tabla_1, tabla_2, tabla_3, ruta_salida="estado_je
             # 1. Nombre del jefe en Negro
             draw.text((x_base, y), nombre, fill=COLOR_NEGRO, font=font_nombre)
             
-            # 2. Nivel (LVL) desplazado a la derecha para centrarlo (+335 en lugar de +300)
+            # 2. Nivel (LVL) desplazado a la derecha para centrarlo (+265)
             draw.text((x_base + 265, y), nivel, fill=COLOR_NEGRO, font=font_nombre)
             
-            # 3. VIVO u Hora ajustado proporcionalmente (+385 en lugar de +360)
+            # 3. VIVO u Hora ajustado proporcionalmente (+355)
             draw.text((x_base + 355, y), estado_hora, fill=COLOR_VERDE, font=font_datos)
             
             y += alto_linea
