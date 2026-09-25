@@ -382,11 +382,34 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
 
+# ==============================================================================
+# 🚀 BUCLE PERMANENTE: SALIDA RAID AUTOMÁTICA
+# ==============================================================================
+async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
+    """
+    Revisa permanentemente el archivo JSON de forma autónoma cada X segundos para las alertas de Raid.
+    """
+    logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
+    await bot_instance.wait_until_ready()
+
+    while not bot_instance.is_closed():
+        try:
+            for tipo in ["principal", "antes", "salio"]:
+                await salida_raid.procesar_ciclo_raids(bot_instance, ruta_json, tipo)
+        except Exception as e:
+            logger.error(f"❌ Error en el ciclo de monitoreo permanente de raids: {e}")
+        
+        await asyncio.sleep(intervalo_segundos)
+
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
+    
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
+        
+    # LANZA EL MONITOREO AUTOMÁTICO DE RAIDS EN SEGUNDO PLANO
+    bot.loop.create_task(iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
 
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
