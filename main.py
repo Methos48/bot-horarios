@@ -296,16 +296,16 @@ def ordenar_y_priorizar(lista_jefes):
     return sorted(lista_limpia, key=clave_orden)
 
 # ==============================================================================
-# 🚀 DISPARADOR 1: CAMBIOS WEB AUTOMÁTICOS (Exclusivo para la lista de la imagen)
+# 🚀 DISPARADORES INDEPENDIENTES: SALIDA RONDA Y SALIDA LOW
 # ==============================================================================
-async def disparar_salidas_por_cambios(bot_instance):
+async def disparar_salida_ronda_si_cambio(bot_instance):
     """
-    Controlado por el ciclo web:
+    Controlado por el ciclo web o manual:
     - Cruza los datos con la tabla de épicos web (`vivo_o_muerto`).
     - SOLO APLICA la lógica especial de VIVO -> Borrado para los jefes de JEFES_EPICOS_IMAGEN.
-    - Todos los demás raids normales siguen comportándose exactamente igual que antes.
+    - Se ejecuta exclusivamente para actualizar `salida_ronda`.
     """
-    logger.info("🚀 [Web] Detectados cambios automáticos. Actualizando salidas web...")
+    logger.info("🚀 [Web/Manual] Actualizando salida_ronda...")
     try:
         # 1. Crear un mapa rápido con los jefes que están VIVOS en la web actualmente
         mapa_vivos_web = {}
@@ -356,15 +356,24 @@ async def disparar_salidas_por_cambios(bot_instance):
         guardar_memoria_a_json_completa()
 
         datos_ronda = ordenar_y_priorizar(MEMORIA_JEFES["raid_60_plus"])
-        datos_low = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
 
-        # Ejecutar las salidas
+        # Ejecutar únicamente salida_ronda
         await salida_ronda.ejecutar(bot_instance, datos_ronda)
-        await salida_low.ejecutar(bot_instance, datos_low)
-        
-        logger.info("✅ Salidas automáticas web ejecutadas con éxito.")
+        logger.info("✅ salida_ronda ejecutada con éxito.")
     except Exception as e:
-        logger.error(f"Error al disparar salidas web: {e}")
+        logger.error(f"Error al disparar salida_ronda: {e}")
+
+async def disparar_salida_low_si_cambio(bot_instance):
+    """
+    Se ejecuta exclusivamente para actualizar `salida_low` ante cambios en raid_60_menos.
+    """
+    logger.info("🚀 [Web] Actualizando salida_low...")
+    try:
+        datos_low = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
+        await salida_low.ejecutar(bot_instance, datos_low)
+        logger.info("✅ salida_low ejecutada con éxito.")
+    except Exception as e:
+        logger.error(f"Error al disparar salida_low: {e}")
 
 # ==============================================================================
 # 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
@@ -459,16 +468,19 @@ async def auto_monitor_web():
                 dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
             fusion_r60_plus = list(dict_r60_plus_actual.values())
 
-            if (listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or 
-                listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos) or 
-                listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto)):
-                
+            # 1. Evaluar y disparar salida_ronda únicamente si hubo cambios en 60+ o vivo_o_muerto
+            if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto):
                 MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
                 MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
-                
                 guardar_memoria_a_json_completa()
-                await disparar_salidas_por_cambios(bot)
+                await disparar_salida_ronda_si_cambio(bot)
+
+            # 2. Evaluar y disparar salida_low únicamente si hubo cambios en 60-
+            if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
+                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                guardar_memoria_a_json_completa()
+                await disparar_salida_low_si_cambio(bot)
+
     except Exception as e:
         logger.error(f"Error en monitoreo web: {e}")
 
@@ -530,7 +542,7 @@ async def on_message(message):
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                
                 await disparar_salidas_manuales(bot, nuevos_registros)
-                await disparar_salidas_por_cambios(bot)
+                await disparar_salida_ronda_si_cambio(bot)
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
