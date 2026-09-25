@@ -39,10 +39,10 @@ def limpiar_campos_pegados(linea):
     - Fecha pegada a hora sin año (ej: 22/0922:00 -> 22/09 22:00)
     - Nombre pegado a fecha (ej: Antharas22/09 -> Antharas 22/09)
     """
-    # 1. Si la fecha (con o sin año de 2 o 4 dígitos) está pegada directamente a la hora (ej: /2622:00 o /0922:00)
+    # 1. Si la fecha (con o sin año de 2 o 4 dígitos) está pegada directamente a la hora
     linea = re.sub(r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)(\d{1,2}:\d{2})', r'\1 \2', linea)
     
-    # 2. Si el nombre está pegado a la fecha (ej: Antharas22/09/26 o Frintezza22/09)
+    # 2. Si el nombre está pegado a la fecha
     match_nombre_fecha = re.search(r'^(.+?)(?=\d{1,2}/\d{1,2})', linea)
     if match_nombre_fecha:
         idx = match_nombre_fecha.end()
