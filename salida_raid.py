@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
@@ -40,75 +41,30 @@ JEFS_ESPECIALES_RANDOM = {
 # FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
 # ==========================================
 FILTRO_PUBLICAR_RAIDS = {
-    "Valakas": "si",
-    "Antharas": "si",
-    "Fafureon": "si",
-    "Balrog": "no",
-    "Electrical": "no",
-    "Baium": "si",
-    "Zaken": "si",
-    "Core": "si",
-    "Orfen": "si",
-    "Queen Ant": "si",
-    "Frintezza": "si",
-    "Freya": "si",
-    "Zariche": "si",
-    "Decarbia": "si",
-    "Hekaton": "si",
-    "Queen shyeed": "si",
-    "Golkonda": "si",
-    "Galaxia": "si",
-    "Barakiel": "si",
-    "otros_60_mas": "no",
-    "otros_60_menos": "no"
+    "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "no",
+    "Electrical": "no", "Baium": "si", "Zaken": "si", "Core": "si",
+    "Orfen": "si", "Queen Ant": "si", "Frintezza": "si", "Freya": "si",
+    "Zariche": "si", "Decarbia": "si", "Hekaton": "si", "Queen shyeed": "si",
+    "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
+    "otros_60_mas": "no", "otros_60_menos": "no"
 }
 
 FILTRO_PUBLICAR_RAIDS_ANTES = {
-    "Valakas": "si",
-    "Antharas": "si",
-    "Fafureon": "si",
-    "Balrog": "si",
-    "Electrical": "si",
-    "Baium": "si",
-    "Zaken": "si",
-    "Core": "si",
-    "Orfen": "si",
-    "Queen Ant": "si",
-    "Frintezza": "si",
-    "Freya": "si",
-    "Zariche": "si",
-    "Decarbia": "si",
-    "Hekaton": "si",
-    "Queen shyeed": "si",
-    "Golkonda": "si",
-    "Galaxia": "si",
-    "Barakiel": "si",
-    "otros_60_mas": "si",
-    "otros_60_menos": "no"
+    "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "si",
+    "Electrical": "si", "Baium": "si", "Zaken": "si", "Core": "si",
+    "Orfen": "si", "Queen Ant": "si", "Frintezza": "si", "Freya": "si",
+    "Zariche": "si", "Decarbia": "si", "Hekaton": "si", "Queen shyeed": "si",
+    "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
+    "otros_60_mas": "si", "otros_60_menos": "no"
 }
 
 FILTRO_PUBLICAR_RAIDS_SALIO = {
-    "Valakas": "si",
-    "Antharas": "si",
-    "Fafureon": "si",
-    "Balrog": "si",
-    "Electrical": "si",
-    "Baium": "si",
-    "Zaken": "si",
-    "Core": "si",
-    "Orfen": "si",
-    "Queen Ant": "si",
-    "Frintezza": "si",
-    "Freya": "si",
-    "Zariche": "si",
-    "Decarbia": "si",
-    "Hekaton": "si",
-    "Queen shyeed": "si",
-    "Golkonda": "si",
-    "Galaxia": "si",
-    "Barakiel": "si",
-    "otros_60_mas": "si",
-    "otros_60_menos": "no"
+    "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "si",
+    "Electrical": "si", "Baium": "si", "Zaken": "si", "Core": "si",
+    "Orfen": "si", "Queen Ant": "si", "Frintezza": "si", "Freya": "si",
+    "Zariche": "si", "Decarbia": "si", "Hekaton": "si", "Queen shyeed": "si",
+    "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
+    "otros_60_mas": "si", "otros_60_menos": "no"
 }
 
 
@@ -177,7 +133,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     return None
 
 
-async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="principal"):
+async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
     global ULTIMO_DIA_LIMPIEZA
 
     ahora_actual = datetime.now(ZONA_ARGENTINA)
@@ -198,26 +154,18 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
     else:
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "principal"
-
-    logger.info(f"⚙️ Ejecutando salida_raid [Filtro: {nombre_filtro_log}] (Tema activo: {TEMA_ACTIVO}). Leyendo JSON...")
     
     canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     fuente_bankgothic = getattr(config, "FUENTE_BANKGOTHIC", None)
     
     if not canal_id:
-        logger.error("❌ No se encontró un canal válido configurado para ENVIAR_MENSAJE_CHANNEL_ID en config.")
         return
 
     channel = bot_instance.get_channel(canal_id)
     if not channel:
-        logger.warning(f"⚠️ No se pudo encontrar el canal de Discord con ID: {canal_id}")
         return
 
-    # ==========================================
-    # LECTURA Y COMBINACIÓN DEL ARCHIVO JSON DEL BOT
-    # ==========================================
     if not os.path.exists(ruta_json):
-        logger.error(f"❌ No se encontró el archivo JSON en la ruta: {ruta_json}")
         return
 
     try:
@@ -235,11 +183,9 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
     try:
         catalogo_raids = obtener_catalogo_imagenes_raid()
         if not catalogo_raids:
-            logger.warning("⚠️ El catálogo de imágenes de raid está vacío.")
             return
 
         raids_especiales_dragones = {"valakas", "antharas", "fafureon"}
-        
         datos_procesados = []
 
         for jefe in datos_horario:
@@ -270,18 +216,12 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
             if not dt_obj and not es_vivo:
                 continue
 
-            # =========================================================================
-            # SERVICIO 1: ANTES (Aviso previo)
-            # =========================================================================
+            # SERVICIO 1: ANTES
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
                 
-                if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
-                    tiempo_objetivo = dt_obj
-                else:
-                    tiempo_objetivo = dt_obj - timedelta(minutes=10)
-
+                tiempo_objetivo = dt_obj if nombre_base_limpio in JEFS_ESPECIALES_RANDOM else dt_obj - timedelta(minutes=10)
                 diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
                 clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
                 
@@ -291,9 +231,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                     HISTORIAL_ENVIADOS_CACHE[clave_id] = True
                 continue
 
-            # =========================================================================
-            # SERVICIO 2: SALIÓ (Aviso de salida)
-            # =========================================================================
+            # SERVICIO 2: SALIÓ
             elif tipo_filtro == "salio":
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
@@ -313,9 +251,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
                 continue
 
-            # =========================================================================
-            # SERVICIO 3: PRINCIPAL / PUBLICAR RAID
-            # =========================================================================
+            # SERVICIO 3: PRINCIPAL
             else:
                 if nombre_base_limpio in raids_especiales_dragones:
                     if not dt_obj:
@@ -331,8 +267,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                     clave_id_h = f"{nombre_base_limpio}_h_{dt_obj.strftime('%Y%m%d_%H%M')}"
                     if 0 <= diferencia_seg_h < 60 and clave_id_h not in HISTORIAL_ENVIADOS_CACHE:
                         reg_h = registro.copy()
-                        dt_impresion = dt_obj - timedelta(minutes=30)
-                        reg_h["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                        reg_h["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                         datos_procesados.append(reg_h)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_h] = True
@@ -341,8 +276,7 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                     clave_id_m = f"{nombre_base_limpio}_m_{dt_obj.strftime('%Y%m%d_%H%M')}"
                     if 0 <= diferencia_seg_m < 60 and clave_id_m not in HISTORIAL_ENVIADOS_CACHE:
                         reg_m = registro.copy()
-                        dt_impresion = dt_obj - timedelta(minutes=30)
-                        reg_m["tiempo_str_final"] = dt_impresion.strftime("%H:%M")
+                        reg_m["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
                         datos_procesados.append(reg_m)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = True
@@ -350,44 +284,30 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                     if dt_obj and not es_vivo:
                         if 18 <= dt_obj.hour <= 23:
                             fecha_raid_dia = dt_obj.date()
-                            
                             t_actual = ahora_actual.time()
                             if datetime.strptime("13:50", "%H:%M").time() <= t_actual <= datetime.strptime("14:50", "%H:%M").time():
                                 clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
-                                
                                 if clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
                                     reg_tarde = registro.copy()
                                     reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                                     reg_tarde["nombre_imagen_base"] = nombre_base_limpio
                                     datos_procesados.append(reg_tarde)
                                     HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
-                    
                     continue
 
         if not datos_procesados:
-            logger.info(f"ℹ️ salida_raid [{nombre_filtro_log}] no encontró ningún jefe activo en el rango temporal actual para imprimir.")
             return
 
-        # 3. CARGA DE FUENTE BANKGOTHIC
         try:
             font_hora = ImageFont.truetype(fuente_bankgothic, 150) if fuente_bankgothic else ImageFont.load_default()
-        except Exception as font_err:
-            logger.warning(f"⚠️ No se pudo cargar BankGothic, usando predeterminada: {font_err}")
+        except Exception:
             font_hora = ImageFont.load_default()
 
-        # 4. PROCESAMIENTO DE IMAGEN Y ENVÍO A DISCORD
         for jefe in datos_procesados:
             nombre_imagen_base = jefe.get("nombre_imagen_base")
-            
-            ruta_imagen = obtener_imagen_raid(
-                catalogo_raids, 
-                nombre_imagen_base, 
-                tema=TEMA_ACTIVO, 
-                tipo_filtro=tipo_filtro
-            )
+            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
             
             if not ruta_imagen:
-                logger.warning(f"⚠️ No se encontró la imagen para el raid: {nombre_imagen_base} en el tema '{TEMA_ACTIVO}' (Filtro: {tipo_filtro})")
                 continue
                 
             img = Image.open(ruta_imagen).convert("RGBA")
@@ -396,16 +316,12 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
             if tipo_filtro in ["antes", "salio"]:
                 ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
                 img.convert("RGB").save(ruta_temporal, "PNG")
-                
-                archivo_discord = discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png")
-                await channel.send(file=archivo_discord)
-                
+                await channel.send(file=discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png"))
                 if os.path.exists(ruta_temporal):
                     os.remove(ruta_temporal)
                 continue
 
             texto_hora = jefe.get("tiempo_str_final", "")
-            
             if texto_hora != "VIVO" and texto_hora != "-":
                 draw_temp = ImageDraw.Draw(img)
                 bbox = draw_temp.textbbox((0, 0), texto_hora, font=font_hora)
@@ -416,31 +332,22 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
                 
                 capa_resplandor = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 draw_resplandor = ImageDraw.Draw(capa_resplandor)
-                draw_resplandor.text(
-                    (x, y), texto_hora, font=font_hora, fill=(0, 0, 0, 0),
-                    stroke_width=6, stroke_fill=(255, 30, 30, 220)
-                )
+                draw_resplandor.text((x, y), texto_hora, font=font_hora, fill=(0, 0, 0, 0), stroke_width=6, stroke_fill=(255, 30, 30, 220))
                 capa_resplandor = capa_resplandor.filter(ImageFilter.GaussianBlur(radius=3))
 
                 capa_texto = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 draw_capa = ImageDraw.Draw(capa_texto)
-                desplazamiento_sombra = 4
-                draw_capa.text((x + desplazamiento_sombra, y + desplazamiento_sombra), texto_hora, font=font_hora, fill=(0, 0, 0, 200))
-                draw_capa.text(
-                    (x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255), 
-                    stroke_width=4, stroke_fill=(230, 0, 38, 255)
-                )
+                draw_capa.text((x + 4, y + 4), texto_hora, font=font_hora, fill=(0, 0, 0, 200))
+                draw_capa.text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255), stroke_width=4, stroke_fill=(230, 0, 38, 255))
                 
                 ruta_textura_metal = getattr(config, "TEXTURA_METAL", None)
                 if ruta_textura_metal and os.path.exists(ruta_textura_metal):
-                    textura_metal = Image.open(ruta_textura_metal).convert("RGBA")
-                    textura_metal = textura_metal.resize((ancho_img, alto_img), Image.Resampling.LANCZOS)
+                    textura_metal = Image.open(ruta_textura_metal).convert("RGBA").resize((ancho_img, alto_img), Image.Resampling.LANCZOS)
                 else:
                     textura_metal = Image.new("RGBA", (ancho_img, alto_img), (140, 145, 150, 255))
                 
                 capa_interior_pura = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                draw_interior_pura = ImageDraw.Draw(capa_interior_pura)
-                draw_interior_pura.text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255))
+                ImageDraw.Draw(capa_interior_pura).text((x, y), texto_hora, font=font_hora, fill=(255, 255, 255, 255))
                 textura_recortada = Image.composite(textura_metal, Image.new("RGBA", img.size, (0, 0, 0, 0)), capa_interior_pura)
                 
                 img.alpha_composite(capa_resplandor)
@@ -449,14 +356,32 @@ async def ejecutar(bot_instance, ruta_json="horarios.json", tipo_filtro="princip
             
             ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
             img.convert("RGB").save(ruta_temporal, "PNG")
-            
-            archivo_discord = discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png")
-            await channel.send(file=archivo_discord)
-            
+            await channel.send(file=discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png"))
             if os.path.exists(ruta_temporal):
                 os.remove(ruta_temporal)
 
-        logger.info(f"✅ salida_raid [{nombre_filtro_log}] procesó y envió {len(datos_procesados)} imágenes correctamente.")
-
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_raid [{nombre_filtro_log}]: {e}")
+
+
+# ==========================================
+# BUCLE PERMANENTE EN SEGUNDO PLANO
+# ==========================================
+async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
+    """
+    Revisa permanentemente el archivo JSON de forma autónoma cada X segundos.
+    """
+    logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
+    
+    # Esperar a que el bot esté listo antes de empezar a mandar mensajes
+    await bot_instance.wait_until_ready()
+
+    while not bot_instance.is_closed():
+        try:
+            # Ejecutamos los tres tipos de filtros en cada ciclo de revisión
+            for tipo in ["principal", "antes", "salio"]:
+                await procesar_ciclo_raids(bot_instance, ruta_json, tipo)
+        except Exception as e:
+            logger.error(f"❌ Error en el ciclo de monitoreo permanente: {e}")
+        
+        await asyncio.sleep(intervalo_segundos)
