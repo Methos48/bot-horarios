@@ -364,9 +364,9 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
         wh_ma = {"valakas", "antharas", "fafureon"}
-        datos_ma = []
+        hubo_cambio_en_ma = False
         
-        # Filtramos y comprobamos si hubo cambios reales respecto a lo que ya estaba guardado
+        # Comprobamos si alguno de los 3 jefes épicos principales cambió o ingresó nuevo
         for j in registros_ingresados:
             nombre = str(j.get("nombre", "")).strip().lower()
             if nombre in wh_ma:
@@ -379,15 +379,25 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
                 estado_viejo = str(previo.get("estado", "")).strip()
                 nivel_viejo = str(previo.get("nivel", "")).strip()
                 
-                # Si no existía antes o alguno de los campos cambió, se incluye para disparar la alerta
                 if not previo or (tiempo_nuevo != tiempo_viejo) or (estado_nuevo != estado_viejo) or (nivel_nuevo != nivel_viejo):
-                    datos_ma.append(j)
+                    hubo_cambio_en_ma = True
+                    break
 
-        if datos_ma:
-            await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma))
-            logger.info("✅ salida_ma ejecutada con éxito debido a cambios en Valakas, Antharas o Fafureon.")
+        if hubo_cambio_en_ma:
+            # Recopilamos los datos actuales de los 3 jefes directamente de la memoria global
+            raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
+            datos_ma_completos = []
+            
+            for jefe in raid_60_plus_actuales:
+                if str(jefe.get("nombre", "")).strip().lower() in wh_ma:
+                    datos_ma_completos.append(jefe)
+            
+            # Aseguramos que se envíen los 3 (o los que estén registrados en la memoria)
+            if datos_ma_completos:
+                await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
+                logger.info("✅ salida_ma ejecutada con éxito enviando el bloque completo de Valakas, Antharas y Fafureon.")
         else:
-            logger.info("ℹ️ Se ingresaron datos de Valakas/Antharas/Fafureon, pero no presentaban cambios con respecto a la memoria actual. Omitiendo salida_ma.")
+            logger.info("ℹ️ Se ingresaron datos, pero Valakas/Antharas/Fafureon no presentaron cambios respecto a la memoria actual. Omitiendo salida_ma.")
 
         if registros_ingresados:
             exclusiones = {"balrog", "electrical", "electrica"}
