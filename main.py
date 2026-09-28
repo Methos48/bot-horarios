@@ -359,21 +359,21 @@ async def disparar_salida_low_si_cambio(bot_instance):
         logger.error(f"Error al disparar salida_low: {e}")
 
 # ==============================================================================
-# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN) - BLINDADO
+# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN) - BLINDADO Y SINCRONIZADO
 # ==============================================================================
 async def disparar_salidas_manuales(bot_instance, registros_ingresados, registros_previos_map):
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
         wh_ma = {"valakas", "antharas", "fafureon"}
-        
+         
         # 1. Verificar si se ingresó alguno de los 3 grandes para salida_ma
         tiene_ma = any(str(j.get("nombre", "")).strip().lower() in wh_ma for j in registros_ingresados)
-        
+         
         if tiene_ma:
             try:
                 raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
                 datos_ma_completos = [jefe for jefe in raid_60_plus_actuales if str(jefe.get("nombre", "")).strip().lower() in wh_ma]
-                
+                 
                 if datos_ma_completos:
                     await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
                     logger.info("✅ salida_ma ejecutada con éxito.")
@@ -405,16 +405,16 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
                 await salida_raid.procesar_ciclo_raids(bot_instance, ruta_json, tipo)
         except Exception as e:
             logger.error(f"❌ Error en el ciclo de monitoreo permanente de raids: {e}")
-        
+         
         await asyncio.sleep(intervalo_segundos)
 
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
-    
+     
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
-        
+         
     bot.loop.create_task(iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
 
     # Registrar el nuevo servicio de comandos por chat (/antharas, /asedio, etc.)
@@ -526,17 +526,25 @@ async def on_message(message):
                     registros_depurados.append(nuevo)
 
                 dict_combinado = dict_actuales_r60.copy()
+                
+                # Cargar también la tabla de épicos actual para mantener sincronización cruzada
+                actuales_epic = MEMORIA_JEFES.get("vivo_o_muerto", [])
+                dict_combinado_epic = {str(item.get("nombre", "")).strip().lower(): item for item in actuales_epic}
+
                 for reg in registros_depurados:
                     nombre = str(reg.get("nombre", "")).strip().lower()
                     if nombre:
                         if nombre in JEFES_EPICOS_IMAGEN:
                             reg["fue_vivo"] = False
+                            # Sincronizamos también en la tabla de épicos de la memoria
+                            dict_combinado_epic[nombre] = reg
                         dict_combinado[nombre] = reg
 
                 MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
+                MEMORIA_JEFES["vivo_o_muerto"] = limpiar_duplicados_por_nombre(list(dict_combinado_epic.values()))
 
                 guardar_memoria_a_json_completa()
-                logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
+                logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}, Total en vivo_o_muerto: {len(MEMORIA_JEFES['vivo_o_muerto'])}")
                 
                 await disparar_salidas_manuales(bot, nuevos_registros, dict_actuales_r60)
                 await disparar_salida_ronda_si_cambio(bot)
