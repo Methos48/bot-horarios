@@ -70,7 +70,7 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 
 def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
     if not nombre_jefe:
-        return False
+        return false
         
     nombre_limpio = nombre_jefe.strip()
     filtro = filtro_usado if filtro_usado is not None else FILTRO_PUBLICAR_RAIDS
@@ -216,18 +216,28 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 continue
 
             # ==========================================
-            # SERVICIO 1: ANTES (Ruta imagen/raid/raid/antes/ con sufijo '1' y a la hora exacta)
+            # SERVICIO 1: ANTES (Reglas actualizadas)
             # ==========================================
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
                 
-                # Se publica exactamente a la hora del raid (dt_obj) dentro de una ventana de 5 min (300s)
-                diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
+                # Validación estricta: Solo procesar si el raid ocurre estrictamente el día de HOY
+                if dt_obj.date() != ahora_actual.date():
+                    continue
+
+                # Si es jefe especial random, se publica a la hora exacta. Si es del resto de 60+, 10 minutos antes.
+                if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
+                    tiempo_objetivo = dt_obj
+                else:
+                    tiempo_objetivo = dt_obj - timedelta(minutes=10)
+
+                diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
                 clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
                 
+                # Ventana de control de 5 minutos (300 segundos) y anti-duplicados
                 if 0 <= diferencia_segundos < 300 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
-                    # Aplicamos el nombre base con el número '1' al final tal como pediste
+                    # Agrega el número '1' al final del nombre base (ej. zaken1, ancientdrake1)[cite: 3]
                     registro["nombre_imagen_base"] = f"{nombre_base_limpio}1"
                     datos_procesados.append(registro)
                     HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
