@@ -299,15 +299,8 @@ def ordenar_y_priorizar(lista_jefes):
 # 🚀 DISPARADORES INDEPENDIENTES: SALIDA RONDA Y SALIDA LOW
 # ==============================================================================
 async def disparar_salida_ronda_si_cambio(bot_instance):
-    """
-    Controlado por el ciclo web o manual:
-    - Cruza los datos con la tabla de épicos web (`vivo_o_muerto`).
-    - SOLO APLICA la lógica especial de VIVO -> Borrado para los jefes de JEFES_EPICOS_IMAGEN.
-    - Se ejecuta exclusivamente para actualizar `salida_ronda`.
-    """
     logger.info("🚀 [Web/Manual] Actualizando salida_ronda...")
     try:
-        # 1. Crear un mapa rápido con los jefes que están VIVOS en la web actualmente
         mapa_vivos_web = {}
         for item_epic in MEMORIA_JEFES.get("vivo_o_muerto", []):
             nombre_epic = str(item_epic.get("nombre", "")).strip().lower()
@@ -318,7 +311,6 @@ async def disparar_salida_ronda_si_cambio(bot_instance):
             if es_vivo:
                 mapa_vivos_web[nombre_epic] = True
 
-        # 2. Procesar la lista de la ronda (`raid_60_plus`)
         r60_plus_original = MEMORIA_JEFES.get("raid_60_plus", [])
         r60_plus_actualizada = []
 
@@ -326,47 +318,37 @@ async def disparar_salida_ronda_si_cambio(bot_instance):
             item_copia = item_raid.copy()
             nombre_raid = str(item_copia.get("nombre", "")).strip().lower()
             
-            # Verificamos si este jefe pertenece a los de la imagen
             es_epico_imagen = nombre_raid in JEFES_EPICOS_IMAGEN
 
             if es_epico_imagen:
-                # --- LÓGICA EXCLUSIVA PARA LOS JEFES DE LA IMAGEN ---
                 if nombre_raid in mapa_vivos_web:
                     item_copia["tiempo_str"] = "VIVO"
                     item_copia["estado"] = "VIVO"
                     item_copia["es_vivo"] = True
-                    item_copia["fue_vivo"] = True  # Ya estuvo activo
+                    item_copia["fue_vivo"] = True
                     item_copia["datetime"] = datetime.min.replace(tzinfo=ZONA_ARGENTINA)
                     r60_plus_actualizada.append(item_copia)
                 else:
                     fue_vivo_antes = item_copia.get("fue_vivo", False)
                     if fue_vivo_antes:
-                        # Ya estuvo vivo y la web lo retiró (abatido): se borra de la ronda
                         logger.info(f"💀 El jefe épico '{nombre_raid}' fue abatido y la web lo retiró. Eliminando de la ronda.")
                         continue
                     else:
-                        # Es un horario cargado manualmente de un épico que aún no llega a vivo
                         r60_plus_actualizada.append(item_copia)
             else:
-                # --- PARA TODOS LOS DEMÁS RAIDS: COMPORTAMIENTO NORMAL ORIGINAL ---
                 r60_plus_actualizada.append(item_copia)
 
-        # Actualizar memoria y guardar
         MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(r60_plus_actualizada)
         guardar_memoria_a_json_completa()
 
         datos_ronda = ordenar_y_priorizar(MEMORIA_JEFES["raid_60_plus"])
 
-        # Ejecutar únicamente salida_ronda
         await salida_ronda.ejecutar(bot_instance, datos_ronda)
         logger.info("✅ salida_ronda ejecutada con éxito.")
     except Exception as e:
         logger.error(f"Error al disparar salida_ronda: {e}")
 
 async def disparar_salida_low_si_cambio(bot_instance):
-    """
-    Se ejecuta exclusivamente para actualizar `salida_low` ante cambios en raid_60_menos.
-    """
     logger.info("🚀 [Web] Actualizando salida_low...")
     try:
         datos_low = ordenar_y_priorizar(MEMORIA_JEFES.get("raid_60_menos", []))
@@ -378,18 +360,34 @@ async def disparar_salida_low_si_cambio(bot_instance):
 # ==============================================================================
 # 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
 # ==============================================================================
-async def disparar_salidas_manuales(bot_instance, registros_ingresados):
+async def disparar_salidas_manuales(bot_instance, registros_ingresados, registros_previos_map):
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
         wh_ma = {"valakas", "antharas", "fafureon"}
-        datos_ma = [
-            j for j in registros_ingresados 
-            if str(j.get("nombre", "")).strip().lower() in wh_ma
-        ]
+        datos_ma = []
+        
+        # Filtramos y comprobamos si hubo cambios reales respecto a lo que ya estaba guardado
+        for j in registros_ingresados:
+            nombre = str(j.get("nombre", "")).strip().lower()
+            if nombre in wh_ma:
+                previo = registros_previos_map.get(nombre, {})
+                tiempo_nuevo = str(j.get("tiempo_str", "")).strip()
+                estado_nuevo = str(j.get("estado", "")).strip()
+                nivel_nuevo = str(j.get("nivel", "")).strip()
+                
+                tiempo_viejo = str(previo.get("tiempo_str", "")).strip()
+                estado_viejo = str(previo.get("estado", "")).strip()
+                nivel_viejo = str(previo.get("nivel", "")).strip()
+                
+                # Si no existía antes o alguno de los campos cambió, se incluye para disparar la alerta
+                if not previo or (tiempo_nuevo != tiempo_viejo) or (estado_nuevo != estado_viejo) or (nivel_nuevo != nivel_viejo):
+                    datos_ma.append(j)
 
         if datos_ma:
             await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma))
-            logger.info("✅ salida_ma ejecutada con éxito.")
+            logger.info("✅ salida_ma ejecutada con éxito debido a cambios en Valakas, Antharas o Fafureon.")
+        else:
+            logger.info("ℹ️ Se ingresaron datos de Valakas/Antharas/Fafureon, pero no presentaban cambios con respecto a la memoria actual. Omitiendo salida_ma.")
 
         if registros_ingresados:
             exclusiones = {"balrog", "electrical", "electrica"}
@@ -468,14 +466,12 @@ async def auto_monitor_web():
                 dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
             fusion_r60_plus = list(dict_r60_plus_actual.values())
 
-            # 1. Evaluar y disparar salida_ronda únicamente si hubo cambios en 60+ o vivo_o_muerto
             if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto):
                 MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
                 MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
                 guardar_memoria_a_json_completa()
                 await disparar_salida_ronda_si_cambio(bot)
 
-            # 2. Evaluar y disparar salida_low únicamente si hubo cambios en 60-
             if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
                 MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
                 guardar_memoria_a_json_completa()
@@ -541,7 +537,8 @@ async def on_message(message):
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                 
-                await disparar_salidas_manuales(bot, nuevos_registros)
+                # Pasamos el diccionario previo antes de actualizar para hacer la comparación de cambios en salida_ma
+                await disparar_salidas_manuales(bot, nuevos_registros, dict_actuales_r60)
                 await disparar_salida_ronda_si_cambio(bot)
 
         except Exception as e:
