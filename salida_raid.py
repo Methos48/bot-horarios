@@ -19,7 +19,7 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 HISTORIAL_ENVIADOS_CACHE = {}
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL
+# CONFIGURACIÓN DE TEMA / ESTILO VISUAL
 # ==========================================
 TEMA_ACTIVO = "rojo"
 
@@ -113,7 +113,7 @@ def obtener_catalogo_imagenes_raid():
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
     if tipo_filtro in ["antes", "salio", "super_epicos"]:
-        subcarpetas_a_probar = ["raid/antes/"]
+        subcarpetas_a_probar = ["raid/antes/", ""]
     else:
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
@@ -260,7 +260,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     tiempo_desde_vivo = (ahora_actual - HISTORIAL_ENVIADOS_CACHE[clave_tiempo_vivo]).total_seconds()
                     cid_5 = f"{nombre_base_limpio}_se_5_35m_{ahora_actual.strftime('%Y%m%d_%H%M')}"
                     
-                    if 2100 <= tiempo_desde_vivo < 2220 and cid_5 not in HISTORIAL_ENVIADOS_CACHE: # Ventana de 2 min tras los 35 min (2100s)
+                    if 2100 <= tiempo_desde_vivo < 2220 and cid_5 not in HISTORIAL_ENVIADOS_CACHE:
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}5", "canal_destino_id": canal_clan_id})
                         HISTORIAL_ENVIADOS_CACHE[cid_5] = ahora_actual
                 continue
