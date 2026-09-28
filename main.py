@@ -63,7 +63,7 @@ NIVELES_JEFE_MANUAL = {
     "zariche": 85
 }
 
-# Elementos que deben quedar sin nivel (en blanco)
+# Elementos que devem quedar sin nivel (en blanco)
 NIVELES_VACIOS_EXTRA = {
     "asedio", "p v p", "x9", "x 9", "foto mes"
 }
@@ -413,6 +413,13 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
     
+    # Sincronizar los comandos de barra (Slash Commands) con Discord
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"✨ ¡Se sincronizaron {len(synced)} comandos de barra (slash commands) correctamente!")
+    except Exception as e:
+        logger.error(f"❌ Error al sincronizar los comandos de barra: {e}")
+
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
         
