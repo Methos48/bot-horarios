@@ -112,10 +112,8 @@ def obtener_catalogo_imagenes_raid():
 
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
-    if tipo_filtro == "antes":
+    if tipo_filtro in ["antes", "salio"]:
         subcarpetas_a_probar = ["raid/antes/"]
-    elif tipo_filtro == "salio":
-        subcarpetas_a_probar = ["raid/salio/"]
     else:
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
@@ -200,6 +198,10 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
             if not nombre_base_limpio:
                 continue
                 
+            # Excluir dragones en salio si se requiere
+            if tipo_filtro == "salio" and nombre_base_limpio in raids_especiales_dragones:
+                continue
+                
             registro = jefe.copy()
             estado = registro.get("estado", "").upper()
             tiempo_str = registro.get("tiempo_str", "-")
@@ -216,17 +218,15 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 continue
 
             # ==========================================
-            # SERVICIO 1: ANTES (Reglas actualizadas)
+            # SERVICIO 1: ANTES (Ventana de 3 minutos / 180s)
             # ==========================================
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj:
                     continue
                 
-                # Validación estricta: Solo procesar si el raid ocurre estrictamente el día de HOY
                 if dt_obj.date() != ahora_actual.date():
                     continue
 
-                # Si es jefe especial random, se publica a la hora exacta. Si es del resto de 60+, 10 minutos antes.
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     tiempo_objetivo = dt_obj
                 else:
@@ -235,29 +235,38 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
                 clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
                 
-                # Ventana de control de 5 minutos (300 segundos) y anti-duplicados
-                if 0 <= diferencia_segundos < 300 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
+                # Ventana de 3 minutos (180 segundos)
+                if 0 <= diferencia_segundos < 180 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
                     registro["nombre_imagen_base"] = f"{nombre_base_limpio}1"
                     datos_procesados.append(registro)
                     HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
                 continue
 
-            # SERVICIO 2: SALIÓ
+            # ==========================================
+            # SERVICIO 2: SALIÓ (Ventana de 3 minutos / 180s)
+            # ==========================================
             elif tipo_filtro == "salio":
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
+                    # Se publica solo cuando pasa a estado VIVO
                     if es_vivo:
-                        clave_id_salio = f"{nombre_base_limpio}_salio_{ahora_actual.strftime('%Y%m%d_%H')}"
+                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{ahora_actual.strftime('%Y%m%d_%H%M')}"
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
-                            registro["nombre_imagen_base"] = nombre_base_limpio
+                            registro["nombre_imagen_base"] = f"{nombre_base_limpio}2"
                             datos_procesados.append(registro)
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 else:
                     if dt_obj:
+                        # Validación estricta: Solo del día en curso
+                        if dt_obj.date() != ahora_actual.date():
+                            continue
+
+                        # Resto de 60+: se publica a su hora exacta
                         diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
                         clave_id_salio = f"{nombre_base_limpio}_salio_{dt_obj.strftime('%Y%m%d_%H%M')}"
                         
-                        if 0 <= diferencia_segundos < 300 and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
-                            registro["nombre_imagen_base"] = nombre_base_limpio
+                        # Ventana de 3 minutos (180 segundos) y sin duplicados
+                        if 0 <= diferencia_segundos < 180 and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                            registro["nombre_imagen_base"] = f"{nombre_base_limpio}2"
                             datos_procesados.append(registro)
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 continue
@@ -271,33 +280,30 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     fecha_raid_dia = dt_obj.date()
                     fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
                     
-                    # 1) Día antes a las 10:00 AM (resta 30 min)
                     dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     diferencia_seg_h = (ahora_actual - dt_10am_dia_raid).total_seconds()
                     clave_id_h = f"{nombre_base_limpio}_h_{dt_obj.strftime('%Y%m%d_%H%M')}"
-                    if 0 <= diferencia_seg_h < 300 and clave_id_h not in HISTORIAL_ENVIADOS_CACHE:
+                    if 0 <= diferencia_seg_h < 180 and clave_id_h not in HISTORIAL_ENVIADOS_CACHE:
                         reg_h = registro.copy()
                         reg_h["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                         datos_procesados.append(reg_h)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_h] = ahora_actual
 
-                    # 2) Día antes a las 10:00 AM (resta 30 min)
                     dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     diferencia_seg_m = (ahora_actual - dt_10am_dia_antes).total_seconds()
                     clave_id_m = f"{nombre_base_limpio}_m_{dt_obj.strftime('%Y%m%d_%H%M')}"
-                    if 0 <= diferencia_seg_m < 300 and clave_id_m not in HISTORIAL_ENVIADOS_CACHE:
+                    if 0 <= diferencia_seg_m < 180 and clave_id_m not in HISTORIAL_ENVIADOS_CACHE:
                         reg_m = registro.copy()
                         reg_m["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
                         datos_procesados.append(reg_m)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = ahora_actual
 
-                    # 3) Mismo día a las 18:00 PM (Modificado: ahora también resta 30 min)
                     dt_18pm_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=18, minute=0)
                     diferencia_seg_18 = (ahora_actual - dt_18pm_dia_raid).total_seconds()
                     clave_id_18 = f"{nombre_base_limpio}_18pm_{dt_obj.strftime('%Y%m%d_%H%M')}"
-                    if 0 <= diferencia_seg_18 < 300 and clave_id_18 not in HISTORIAL_ENVIADOS_CACHE:
+                    if 0 <= diferencia_seg_18 < 180 and clave_id_18 not in HISTORIAL_ENVIADOS_CACHE:
                         reg_18 = registro.copy()
                         reg_18["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_18["nombre_imagen_base"] = nombre_base_limpio
