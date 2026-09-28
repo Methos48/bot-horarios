@@ -12,6 +12,7 @@ import config
 import entrada_pagina
 import entrada_texto
 import entrada_imagen
+import COMANDOS_BOT  # <-- Módulo de comandos de bot integrado
 
 # --- MÓDULOS DE SALIDA ---
 import salida_horario
@@ -366,7 +367,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
         wh_ma = {"valakas", "antharas", "fafureon"}
         hubo_cambio_en_ma = False
         
-        # Comprobamos si alguno de los 3 jefes épicos principales cambió o ingresó nuevo
         for j in registros_ingresados:
             nombre = str(j.get("nombre", "")).strip().lower()
             if nombre in wh_ma:
@@ -384,7 +384,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
                     break
 
         if hubo_cambio_en_ma:
-            # Recopilamos los datos actuales de los 3 jefes directamente de la memoria global
             raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
             datos_ma_completos = []
             
@@ -392,7 +391,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
                 if str(jefe.get("nombre", "")).strip().lower() in wh_ma:
                     datos_ma_completos.append(jefe)
             
-            # Aseguramos que se envíen los 3 (o los que estén registrados en la memoria)
             if datos_ma_completos:
                 await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
                 logger.info("✅ salida_ma ejecutada con éxito enviando el bloque completo de Valakas, Antharas y Fafureon.")
@@ -437,6 +435,10 @@ async def on_ready():
         auto_monitor_web.start()
         
     bot.loop.create_task(iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
+
+    # Registrar el nuevo servicio de comandos por chat (/antharas, /asedio, etc.)
+    COMANDOS_BOT.registrar_comandos_bot(bot)
+    logger.info("🎮 Servicio COMANDOS_BOT registrado correctamente.")
 
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
@@ -547,7 +549,6 @@ async def on_message(message):
                 guardar_memoria_a_json_completa()
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                 
-                # Pasamos el diccionario previo antes de actualizar para hacer la comparación de cambios en salida_ma
                 await disparar_salidas_manuales(bot, nuevos_registros, dict_actuales_r60)
                 await disparar_salida_ronda_si_cambio(bot)
 
