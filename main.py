@@ -365,59 +365,23 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
         wh_ma = {"valakas", "antharas", "fafureon"}
-        hubo_cambio_en_ma = False
         
-        for j in registros_ingresados:
-            nombre = str(j.get("nombre", "")).strip().lower()
-            if nombre in wh_ma:
-                previo = registros_previos_map.get(nombre, {})
-                tiempo_nuevo = str(j.get("tiempo_str", "")).strip()
-                estado_nuevo = str(j.get("estado", "")).strip()
-                nivel_nuevo = str(j.get("nivel", "")).strip()
-                
-                tiempo_viejo = str(previo.get("tiempo_str", "")).strip()
-                estado_viejo = str(previo.get("estado", "")).strip()
-                nivel_viejo = str(previo.get("nivel", "")).strip()
-                
-                if not previo or (tiempo_nuevo != tiempo_viejo) or (estado_nuevo != estado_viejo) or (nivel_nuevo != nivel_viejo):
-                    hubo_cambio_en_ma = True
-                    break
-
-        if hubo_cambio_en_ma:
+        # 1. Verificar si se ingresó alguno de los 3 grandes para salida_ma
+        tiene_ma = any(str(j.get("nombre", "")).strip().lower() in wh_ma for j in registros_ingresados)
+        
+        if tiene_ma:
             raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
-            datos_ma_completos = []
-            
-            for jefe in raid_60_plus_actuales:
-                if str(jefe.get("nombre", "")).strip().lower() in wh_ma:
-                    datos_ma_completos.append(jefe)
+            datos_ma_completos = [jefe for jefe in raid_60_plus_actuales if str(jefe.get("nombre", "")).strip().lower() in wh_ma]
             
             if datos_ma_completos:
                 await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
-                logger.info("✅ salida_ma ejecutada con éxito enviando el bloque completo de Valakas, Antharas y Fafureon.")
-        else:
-            logger.info("ℹ️ Se ingresaron datos, pero Valakas/Antharas/Fafureon no presentaron cambios respecto a la memoria actual. Omitiendo salida_ma.")
+                logger.info("✅ salida_ma ejecutada con éxito.")
 
-        # --- SECCIÓN MODIFICADA PARA SALIDA_HORARIO ---
-        if registros_ingresados:
-            nombres_buscados_horario = {
-                "orfen", "queen ant", "core", "zaken", "baium", 
-                "frintezza", "freya", "zariche", "valakas", "antharas", 
-                "fafureon", "asedio", "p v p", "x9", "x 9", "foto mes"
-            }
-            
-            exclusiones = {"balrog", "electrical", "electrica"}
-            
-            raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
-            registros_horario = []
-            
-            for item in raid_60_plus_actuales:
-                nombre_limpio = str(item.get("nombre", "")).strip().lower()
-                if nombre_limpio in nombres_buscados_horario and nombre_limpio not in exclusiones:
-                    registros_horario.append(item)
-
-            if registros_horario:
-                await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_horario))
-                logger.info("✅ salida_horario ejecutada con éxito enviando la lista consolidada desde el JSON.")
+        # 2. Ejecutar salida_horario con TODOS los registros actuales del JSON para que imprima la lista completa
+        raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
+        if raid_60_plus_actuales:
+            await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(raid_60_plus_actuales))
+            logger.info("✅ salida_horario ejecutada con éxito enviando todos los registros actualizados.")
 
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
