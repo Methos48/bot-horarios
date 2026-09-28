@@ -1,12 +1,12 @@
 import os
 import logging
-import io
 import discord
+from discord import app_commands
 import config
 
 logger = logging.getLogger("ComandosBot")
 
-# Diccionario de mapeo de comandos permitidos (sin la barra inicial) a su archivo de imagen correspondiente
+# Diccionario de mapeo de comandos permitidos a su archivo de imagen correspondiente
 COMANDOS_VALIDOS = {
     "4s": "4s.png",
     "anakim": "anakim.png",
@@ -32,58 +32,64 @@ COMANDOS_VALIDOS = {
     "varka": "varka.png",
     "zaken": "zaken.png",
     "zariche": "zariche.png",
-    # Variantes para Queen Ant (apuntan a queenant.png o la que corresponda en la carpeta)
     "queenant": "queenant.png",
     "queen": "queenant.png",
     "quen": "queenant.png"
 }
 
 def registrar_comandos_bot(bot_instance):
-    @bot_instance.event
-    async def on_message(message: discord.Message):
-        # Evitar que el bot responda a sus propios mensajes
-        if message.author.bot:
-            return
-
-        # Obtener el canal de clan configurado
+    """Registra dinámicamente los comandos de barra (slash commands) en el bot de Discord."""
+    
+    # Función auxiliar para procesar y enviar la imagen correspondiente
+    async def enviar_imagen_comando(interaction: discord.Interaction, nombre_comando: str):
+        # Verificar el canal de clan configurado
         canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
-        if not canal_clan_id or message.channel.id != canal_clan_id:
+        if canal_clan_id and interaction.channel_id != canal_clan_id:
+            await interaction.response.send_message("❌ Este comando no se puede usar en este canal.", ephemeral=True)
             return
 
-        contenido = message.content.strip()
-
-        # Verificar que sea un comando (comience con '/')
-        if not contenido.startswith('/'):
+        nombre_archivo = COMANDOS_VALIDOS.get(nombre_comando)
+        if not nombre_archivo:
+            await interaction.response.send_message("❌ Comando no reconocido.", ephemeral=True)
             return
 
-        # Extraer el comando sin la barra y pasarlo a minúsculas para ignorar mayúsculas/minúsculas
-        comando_limpio = contenido[1:].lower()
+        directorio_armando = getattr(config, "DIR_ARMANDO", "imagen/raid/raid/armando")
+        ruta_imagen = os.path.join(directorio_armando, nombre_archivo)
 
-        if comando_limpio in COMANDOS_VALIDOS:
-            nombre_archivo = COMANDOS_VALIDOS[comando_limpio]
-            
-            # Construir la ruta basada en la estructura proporcionada
-            directorio_armando = getattr(config, "DIR_ARMANDO", "imagen/raid/raid/armando")
-            ruta_imagen = os.path.join(directorio_armando, nombre_archivo)
+        if not os.path.exists(ruta_imagen):
+            logger.warning(f"⚠️ La plantilla '{nombre_archivo}' no se encontró en '{directorio_armando}'.")
+            await interaction.response.send_message("❌ La imagen solicitada no se encuentra disponible en el servidor.", ephemeral=True)
+            return
 
-            if not os.path.exists(ruta_imagen):
-                logger.warning(f"⚠️ La plantilla '{nombre_archivo}' no se encontró en '{directorio_armando}'.")
-                return
-
-            # Intentar borrar el mensaje original del usuario
+        try:
+            # Diferimos la respuesta para evitar tiempos de espera agotados en Discord
+            await interaction.response.defer()
+            with open(ruta_imagen, "rb") as f:
+                archivo_discord = discord.File(f, filename=nombre_archivo)
+                await interaction.followup.send(file=archivo_discord)
+        except Exception as e:
+            logger.error(f"❌ Error al enviar la imagen del comando /{nombre_comando}: {e}")
             try:
-                await message.delete()
-            except discord.Forbidden:
-                logger.warning("⚠️ No tengo permisos para eliminar mensajes en este canal.")
-            except discord.HTTPException as e:
-                logger.error(f"❌ Error al intentar borrar el mensaje: {e}")
+                await interaction.followup.send("❌ Hubo un error al enviar la imagen.", ephemeral=True)
+            except:
+                pass
 
-            # Enviar la imagen correspondiente al canal
-            try:
-                img = Image.open(ruta_imagen) if 'Image' in globals() else None
-                # Si prefieres abrirla con PIL para validación o enviarla directamente por archivo binario:
-                with open(ruta_imagen, "rb") as f:
-                    archivo_discord = discord.File(f, filename=nombre_archivo)
-                    await message.channel.send(file=archivo_discord)
-            except Exception as e:
-                logger.error(f"❌ Error al enviar la imagen del comando /{comando_limpio}: {e}")
+    # Registrar cada comando de forma dinámica en el árbol del bot
+    for cmd in COMANDOS_VALIDOS.keys():
+        # Creamos una función closure para capturar el nombre del comando actual en el bucle
+        def crear_callback(c):
+            async def callback(interaction: discord.Interaction):
+                await enviar_imagen_comando(interaction, c)
+            return callback
+
+        # Definimos el comando de barra con app_commands
+        slash_cmd = app_commands.Command(
+            name=cmd,
+            description=f"Muestra la plantilla de estrategia para {cmd}",
+            callback=crear_callback(cmd)
+        )
+        
+        # Añadimos el comando al árbol global del bot
+        bot_instance.tree.add_command(slash_cmd)
+        
+    logger.info(f"✅ Se registraron {len(COMANDOS_VALIDOS)} comandos de barra de raids correctamente.")
