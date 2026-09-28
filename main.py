@@ -359,7 +359,7 @@ async def disparar_salida_low_si_cambio(bot_instance):
         logger.error(f"Error al disparar salida_low: {e}")
 
 # ==============================================================================
-# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
+# 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN) - BLINDADO
 # ==============================================================================
 async def disparar_salidas_manuales(bot_instance, registros_ingresados, registros_previos_map):
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
@@ -370,21 +370,27 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
         tiene_ma = any(str(j.get("nombre", "")).strip().lower() in wh_ma for j in registros_ingresados)
         
         if tiene_ma:
-            raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
-            datos_ma_completos = [jefe for jefe in raid_60_plus_actuales if str(jefe.get("nombre", "")).strip().lower() in wh_ma]
-            
-            if datos_ma_completos:
-                await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
-                logger.info("✅ salida_ma ejecutada con éxito.")
+            try:
+                raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
+                datos_ma_completos = [jefe for jefe in raid_60_plus_actuales if str(jefe.get("nombre", "")).strip().lower() in wh_ma]
+                
+                if datos_ma_completos:
+                    await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma_completos))
+                    logger.info("✅ salida_ma ejecutada con éxito.")
+            except Exception as e_ma:
+                logger.error(f"⚠️ Error menor al ejecutar salida_ma (continuando flujo): {e_ma}")
 
-        # 2. Ejecutar salida_horario con TODOS los registros actuales del JSON para que imprima la lista completa
-        raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
-        if raid_60_plus_actuales:
-            await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(raid_60_plus_actuales))
-            logger.info("✅ salida_horario ejecutada con éxito enviando todos los registros actualizados.")
+        # 2. Ejecutar salida_horario de forma independiente y segura para que no colapse
+        try:
+            raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
+            if raid_60_plus_actuales:
+                await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(raid_60_plus_actuales))
+                logger.info("✅ salida_horario ejecutada con éxito enviando todos los registros actualizados.")
+        except Exception as e_sh:
+            logger.error(f"⚠️ Error al ejecutar salida_horario: {e_sh}")
 
     except Exception as e:
-        logger.error(f"Error al disparar salidas manuales: {e}")
+        logger.error(f"❌ Error crítico en disparar_salidas_manuales: {e}")
 
 # ==============================================================================
 # 🚀 BUCLE PERMANENTE: SALIDA RAID AUTOMÁTICA
