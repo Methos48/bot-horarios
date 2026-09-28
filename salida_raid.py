@@ -282,18 +282,20 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         datos_procesados.append(reg_m)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = ahora_actual
                 else:
+                    # RAIDS NORMALES: Solo publicar si ocurren estrictamente el día de HOY
                     if dt_obj and not es_vivo:
-                        if 18 <= dt_obj.hour <= 23:
-                            fecha_raid_dia = dt_obj.date()
-                            t_actual = ahora_actual.time()
-                            if datetime.strptime("13:50", "%H:%M").time() <= t_actual <= datetime.strptime("14:50", "%H:%M").time():
-                                clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
-                                if clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
-                                    reg_tarde = registro.copy()
-                                    reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
-                                    reg_tarde["nombre_imagen_base"] = nombre_base_limpio
-                                    datos_procesados.append(reg_tarde)
-                                    HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = ahora_actual
+                        if dt_obj.date() == ahora_actual.date():
+                            if 18 <= dt_obj.hour <= 23:
+                                fecha_raid_dia = dt_obj.date()
+                                t_actual = ahora_actual.time()
+                                if datetime.strptime("13:50", "%H:%M").time() <= t_actual <= datetime.strptime("14:50", "%H:%M").time():
+                                    clave_id_pub = f"{nombre_base_limpio}_tarde_{fecha_raid_dia.strftime('%Y%m%d')}"
+                                    if clave_id_pub not in HISTORIAL_ENVIADOS_CACHE:
+                                        reg_tarde = registro.copy()
+                                        reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                                        reg_tarde["nombre_imagen_base"] = nombre_base_limpio
+                                        datos_procesados.append(reg_tarde)
+                                        HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = ahora_actual
                     continue
 
         if not datos_procesados:
