@@ -482,8 +482,11 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    # Forzar conversión a int para evitar fallos de tipo (str vs int) en la comparación
+    canal_config_id = int(getattr(config, "CARGAR_HORARIO_CHANNEL_ID", 0) or 0)
+
     # Si el mensaje proviene del canal configurado para carga de horarios/datos
-    if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
+    if canal_config_id and int(message.channel.id) == canal_config_id:
         try:
             logger.info(f"🔍 Mensaje detectado en canal de carga ({message.channel.id}). Autor: {message.author}")
             nuevos_registros = []
@@ -493,7 +496,6 @@ async def on_message(message):
                 nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
                 logger.info(f"📥 Contenido recibido de texto (Longitud: {len(message.content)} chars). Procesando con entrada_texto...")
-                logger.debug(f"Texto bruto:\n{message.content}")
                 nuevos_registros = entrada_texto.procesar_y_ordenar_texto(message.content)
                 logger.info(f"📊 Registros extraídos por entrada_texto: {len(nuevos_registros)}")
                 
