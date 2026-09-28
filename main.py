@@ -512,6 +512,7 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    # Si el mensaje proviene del canal configurado para carga de horarios/datos
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
         try:
             nuevos_registros = []
@@ -565,7 +566,10 @@ async def on_message(message):
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
+            
+        return  # 🛑 DETIENE LA EJECUCIÓN AQUÍ para que este canal no intente procesar comandos
 
+    # Para el resto de canales, procesar comandos normalmente
     await bot.process_commands(message)
 
 if __name__ == "__main__":
