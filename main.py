@@ -485,18 +485,23 @@ async def on_message(message):
     # Si el mensaje proviene del canal configurado para carga de horarios/datos
     if config.CARGAR_HORARIO_CHANNEL_ID and message.channel.id == config.CARGAR_HORARIO_CHANNEL_ID:
         try:
+            logger.info(f"🔍 Mensaje detectado en canal de carga ({message.channel.id}). Autor: {message.author}")
             nuevos_registros = []
 
             if message.attachments:
                 logger.info("🖼️ Procesando imagen con entrada_imagen...")
                 nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
-                logger.info("📥 Procesando texto con entrada_texto...")
+                logger.info(f"📥 Contenido recibido de texto (Longitud: {len(message.content)} chars). Procesando con entrada_texto...")
+                logger.debug(f"Texto bruto:\n{message.content}")
                 nuevos_registros = entrada_texto.procesar_y_ordenar_texto(message.content)
+                logger.info(f"📊 Registros extraídos por entrada_texto: {len(nuevos_registros)}")
+                
                 try:
                     await message.delete()
-                except Exception:
-                    pass
+                    logger.info("🗑️ Mensaje original de texto eliminado correctamente.")
+                except Exception as ex_del:
+                    logger.warning(f"⚠️ No se pudo borrar el mensaje original (falta de permisos?): {ex_del}")
 
             if nuevos_registros:
                 nuevos_registros = asignar_nivel_manual(nuevos_registros)
@@ -533,9 +538,11 @@ async def on_message(message):
                 
                 await disparar_salidas_manuales(bot, nuevos_registros, dict_actuales_r60)
                 await disparar_salida_ronda_si_cambio(bot)
+            else:
+                logger.warning("⚠️ El analizador no devolvió ningún registro válido a partir del mensaje enviado.")
 
         except Exception as e:
-            logger.error(f"Error procesando entrada manual: {e}")
+            logger.error(f"❌ Error procesando entrada manual: {e}", exc_info=True)
             
         return  # 🛑 DETIENE LA EJECUCIÓN AQUÍ para que este canal no intente procesar comandos
 
