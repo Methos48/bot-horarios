@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import io
 import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -13,10 +14,10 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
-# CACHÉ DE HISTORIAL Y CONTROL DIARIO
+# CACHÉ DE HISTORIAL Y CONTROL DINÁMICO
 # ==========================================
+# Almacenará tuplas del tipo: { clave_id: timestamp_de_creacion_utc }
 HISTORIAL_ENVIADOS_CACHE = {}
-ULTIMO_DIA_LIMPIEZA = None
 
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL
@@ -134,16 +135,14 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
-    global ULTIMO_DIA_LIMPIEZA
-
     ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-    # Limpieza automática de caché una vez al día a partir de las 04:00 AM
-    if ULTIMO_DIA_LIMPIEZA != ahora_actual.date():
-        if ahora_actual.hour >= 4:
-            HISTORIAL_ENVIADOS_CACHE.clear()
-            ULTIMO_DIA_LIMPIEZA = ahora_actual.date()
-            logger.info("🧹 Caché de historial de enviados limpiada automáticamente por cambio de día.")
+    # Limpieza inteligente de caché: remueve elementos con más de 24 horas de antigüedad
+    global HISTORIAL_ENVIADOS_CACHE
+    limite_tiempo = ahora_actual - timedelta(hours=24)
+    HISTORIAL_ENVIADOS_CACHE = {
+        k: v for k, v in HISTORIAL_ENVIADOS_CACHE.items() if v > limite_tiempo
+    }
 
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
@@ -156,7 +155,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
     else:
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "principal"
-        # ⚠️ Aquí usamos el nuevo canal para las publicaciones principales (PUBLICAR_RAIDS)
         canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
     
     fuente_bankgothic = getattr(config, "FUENTE_BANKGOTHIC", None)
@@ -231,7 +229,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 if 0 <= diferencia_segundos < 300 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
                     registro["nombre_imagen_base"] = nombre_base_limpio
                     datos_procesados.append(registro)
-                    HISTORIAL_ENVIADOS_CACHE[clave_id] = True
+                    HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
                 continue
 
             # SERVICIO 2: SALIÓ (Ventana ampliada a 300s / 5 min)
@@ -242,7 +240,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             registro["nombre_imagen_base"] = nombre_base_limpio
                             datos_procesados.append(registro)
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 else:
                     if dt_obj:
                         diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
@@ -251,7 +249,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         if 0 <= diferencia_segundos < 300 and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             registro["nombre_imagen_base"] = nombre_base_limpio
                             datos_procesados.append(registro)
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = True
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 continue
 
             # SERVICIO 3: PRINCIPAL
@@ -266,7 +264,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
 
-                    # Ventana ampliada a 300s para dragones (h)
                     diferencia_seg_h = (ahora_actual - dt_10am_dia_raid).total_seconds()
                     clave_id_h = f"{nombre_base_limpio}_h_{dt_obj.strftime('%Y%m%d_%H%M')}"
                     if 0 <= diferencia_seg_h < 300 and clave_id_h not in HISTORIAL_ENVIADOS_CACHE:
@@ -274,9 +271,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         reg_h["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_h["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                         datos_procesados.append(reg_h)
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_h] = True
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_h] = ahora_actual
 
-                    # Ventana ampliada a 300s para dragones (m)
                     diferencia_seg_m = (ahora_actual - dt_10am_dia_antes).total_seconds()
                     clave_id_m = f"{nombre_base_limpio}_m_{dt_obj.strftime('%Y%m%d_%H%M')}"
                     if 0 <= diferencia_seg_m < 300 and clave_id_m not in HISTORIAL_ENVIADOS_CACHE:
@@ -284,7 +280,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         reg_m["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_m["nombre_imagen_base"] = f"{nombre_base_limpio}m"
                         datos_procesados.append(reg_m)
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_m] = True
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_m] = ahora_actual
                 else:
                     if dt_obj and not es_vivo:
                         if 18 <= dt_obj.hour <= 23:
@@ -297,7 +293,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                                     reg_tarde["tiempo_str_final"] = dt_obj.strftime("%H:%M")
                                     reg_tarde["nombre_imagen_base"] = nombre_base_limpio
                                     datos_procesados.append(reg_tarde)
-                                    HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = True
+                                    HISTORIAL_ENVIADOS_CACHE[clave_id_pub] = ahora_actual
                     continue
 
         if not datos_procesados:
@@ -319,11 +315,10 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
             ancho_img, alto_img = img.size
 
             if tipo_filtro in ["antes", "salio"]:
-                ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
-                img.convert("RGB").save(ruta_temporal, "PNG")
-                await channel.send(file=discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png"))
-                if os.path.exists(ruta_temporal):
-                    os.remove(ruta_temporal)
+                with io.BytesIO() as image_binary:
+                    img.convert("RGB").save(image_binary, "PNG")
+                    image_binary.seek(0)
+                    await channel.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}.png"))
                 continue
 
             texto_hora = jefe.get("tiempo_str_final", "")
@@ -359,11 +354,10 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 img.alpha_composite(capa_texto)
                 img.alpha_composite(textura_recortada)
             
-            ruta_temporal = f"temp_{nombre_imagen_base}_{nombre_filtro_log}.png"
-            img.convert("RGB").save(ruta_temporal, "PNG")
-            await channel.send(file=discord.File(ruta_temporal, filename=f"raid_{nombre_imagen_base}.png"))
-            if os.path.exists(ruta_temporal):
-                os.remove(ruta_temporal)
+            with io.BytesIO() as image_binary:
+                img.convert("RGB").save(image_binary, "PNG")
+                image_binary.seek(0)
+                await channel.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}.png"))
 
     except Exception as e:
         logger.error(f"❌ Error crítico al ejecutar salida_raid [{nombre_filtro_log}]: {e}")
