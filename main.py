@@ -397,16 +397,27 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados, registro
         else:
             logger.info("ℹ️ Se ingresaron datos, pero Valakas/Antharas/Fafureon no presentaron cambios respecto a la memoria actual. Omitiendo salida_ma.")
 
+        # --- SECCIÓN MODIFICADA PARA SALIDA_HORARIO ---
         if registros_ingresados:
+            nombres_buscados_horario = {
+                "orfen", "queen ant", "core", "zaken", "baium", 
+                "frintezza", "freya", "zariche", "valakas", "antharas", 
+                "fafureon", "asedio", "p v p", "x9", "x 9", "foto mes"
+            }
+            
             exclusiones = {"balrog", "electrical", "electrica"}
-            registros_horario = [
-                j for j in registros_ingresados
-                if str(j.get("nombre", "")).strip().lower() not in exclusiones
-            ]
+            
+            raid_60_plus_actuales = MEMORIA_JEFES.get("raid_60_plus", [])
+            registros_horario = []
+            
+            for item in raid_60_plus_actuales:
+                nombre_limpio = str(item.get("nombre", "")).strip().lower()
+                if nombre_limpio in nombres_buscados_horario and nombre_limpio not in exclusiones:
+                    registros_horario.append(item)
 
             if registros_horario:
                 await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_horario))
-                logger.info("✅ salida_horario ejecutada con éxito.")
+                logger.info("✅ salida_horario ejecutada con éxito enviando la lista consolidada desde el JSON.")
 
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
