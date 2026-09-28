@@ -70,7 +70,7 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 
 def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
     if not nombre_jefe:
-        return false
+        return False
         
     nombre_limpio = nombre_jefe.strip()
     filtro = filtro_usado if filtro_usado is not None else FILTRO_PUBLICAR_RAIDS
@@ -237,7 +237,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 
                 # Ventana de control de 5 minutos (300 segundos) y anti-duplicados
                 if 0 <= diferencia_segundos < 300 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
-                    # Agrega el número '1' al final del nombre base (ej. zaken1, ancientdrake1)[cite: 3]
                     registro["nombre_imagen_base"] = f"{nombre_base_limpio}1"
                     datos_procesados.append(registro)
                     HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
@@ -272,6 +271,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     fecha_raid_dia = dt_obj.date()
                     fecha_dia_antes = fecha_raid_dia - timedelta(days=1)
                     
+                    # 1) Día antes a las 10:00 AM (resta 30 min)
                     dt_10am_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     diferencia_seg_h = (ahora_actual - dt_10am_dia_raid).total_seconds()
                     clave_id_h = f"{nombre_base_limpio}_h_{dt_obj.strftime('%Y%m%d_%H%M')}"
@@ -282,6 +282,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         datos_procesados.append(reg_h)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_h] = ahora_actual
 
+                    # 2) Día antes a las 10:00 AM (resta 30 min)
                     dt_10am_dia_antes = datetime.combine(fecha_dia_antes, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=10, minute=0)
                     diferencia_seg_m = (ahora_actual - dt_10am_dia_antes).total_seconds()
                     clave_id_m = f"{nombre_base_limpio}_m_{dt_obj.strftime('%Y%m%d_%H%M')}"
@@ -292,12 +293,13 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                         datos_procesados.append(reg_m)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_m] = ahora_actual
 
+                    # 3) Mismo día a las 18:00 PM (Modificado: ahora también resta 30 min)
                     dt_18pm_dia_raid = datetime.combine(fecha_raid_dia, datetime.min.time(), tzinfo=ZONA_ARGENTINA).replace(hour=18, minute=0)
                     diferencia_seg_18 = (ahora_actual - dt_18pm_dia_raid).total_seconds()
                     clave_id_18 = f"{nombre_base_limpio}_18pm_{dt_obj.strftime('%Y%m%d_%H%M')}"
                     if 0 <= diferencia_seg_18 < 300 and clave_id_18 not in HISTORIAL_ENVIADOS_CACHE:
                         reg_18 = registro.copy()
-                        reg_18["tiempo_str_final"] = dt_obj.strftime("%H:%M")
+                        reg_18["tiempo_str_final"] = (dt_obj - timedelta(minutes=30)).strftime("%H:%M")
                         reg_18["nombre_imagen_base"] = nombre_base_limpio
                         datos_procesados.append(reg_18)
                         HISTORIAL_ENVIADOS_CACHE[clave_id_18] = ahora_actual
