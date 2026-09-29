@@ -76,17 +76,18 @@ def registrar_comandos_bot(bot_instance):
 
     # Registrar cada comando de forma dinámica en el árbol del bot
     for cmd in COMANDOS_VALIDOS.keys():
-        # Creamos una función closure para capturar el nombre del comando actual en el bucle
-        def crear_callback(c):
+        
+        # Creamos una función closure correcta fijando el comando actual con c=cmd
+        def fabricar_callback(c=cmd):
             async def callback(interaction: discord.Interaction):
                 await enviar_imagen_comando(interaction, c)
             return callback
 
-        # Definimos el comando de barra con app_commands
+        # Definimos el comando de barra con app_commands.Command
         slash_cmd = app_commands.Command(
             name=cmd,
             description=f"Muestra la plantilla de estrategia para {cmd}",
-            callback=crear_callback(cmd)
+            callback=fabricar_callback()
         )
         
         # Añadimos el comando al árbol global del bot
