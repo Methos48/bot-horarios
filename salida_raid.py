@@ -17,6 +17,7 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 # CACHÉ DE HISTORIAL Y CONTROL DINÁMICO
 # ==========================================
 HISTORIAL_ENVIADOS_CACHE = {}
+ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario a las 04:00 AM
 
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL
@@ -131,14 +132,8 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     return None
 
 
-async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
+async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
     ahora_actual = datetime.now(ZONA_ARGENTINA)
-
-    global HISTORIAL_ENVIADOS_CACHE
-    limite_tiempo = ahora_actual - timedelta(hours=24)
-    HISTORIAL_ENVIADOS_CACHE = {
-        k: v for k, v in HISTORIAL_ENVIADOS_CACHE.items() if v > limite_tiempo
-    }
 
     if tipo_filtro == "antes":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
@@ -218,51 +213,40 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                 if dt_obj and dt_obj.date() != ahora_actual.date():
                     continue
 
-                id_fecha_base = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else ahora_actual.strftime('%Y%m%d_%H')
+                fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
+                ventana_maxima = intervalo_segundos * 2
 
-                # Regla 1: 1 hora antes de la hora (Sufijo 1) -> ENVIAR_MENSAJE_CHANNEL_ID
+                # Regla 1: 1 hora antes
                 if dt_obj:
                     t_obj_1 = dt_obj - timedelta(hours=1)
                     diff_1 = (ahora_actual - t_obj_1).total_seconds()
-                    cid_1 = f"{nombre_base_limpio}_se_1_{id_fecha_base}"
-                    if 0 <= diff_1 < 120 and cid_1 not in HISTORIAL_ENVIADOS_CACHE:
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}1", "canal_destino_id": canal_envio_id})
+                    cid_1 = f"{nombre_base_limpio}_se_1_{fecha_dia_str}_{dt_obj.strftime('%H%M')}"
+                    if 0 <= diff_1 < ventana_maxima and cid_1 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_1] = ahora_actual
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}1", "canal_destino_id": canal_envio_id})
 
-                    # Regla 2: 30 minutos antes de la hora (Sufijo 2) -> ENVIAR_MENSAJE_CHANNEL_ID
+                    # Regla 2: 30 minutos antes
                     t_obj_2 = dt_obj - timedelta(minutes=30)
                     diff_2 = (ahora_actual - t_obj_2).total_seconds()
-                    cid_2 = f"{nombre_base_limpio}_se_2_{id_fecha_base}"
-                    if 0 <= diff_2 < 120 and cid_2 not in HISTORIAL_ENVIADOS_CACHE:
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}2", "canal_destino_id": canal_envio_id})
+                    cid_2 = f"{nombre_base_limpio}_se_2_{fecha_dia_str}_{dt_obj.strftime('%H%M')}"
+                    if 0 <= diff_2 < ventana_maxima and cid_2 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_2] = ahora_actual
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}2", "canal_destino_id": canal_envio_id})
 
-                    # Regla 3: Justo en la hora exacta (Sufijo 3) -> MENSAJE_CLAN_CHANNEL_ID
+                    # Regla 3: Hora exacta
                     diff_3 = (ahora_actual - dt_obj).total_seconds()
-                    cid_3 = f"{nombre_base_limpio}_se_3_{id_fecha_base}"
-                    if 0 <= diff_3 < 120 and cid_3 not in HISTORIAL_ENVIADOS_CACHE:
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
+                    cid_3 = f"{nombre_base_limpio}_se_3_{fecha_dia_str}_{dt_obj.strftime('%H%M')}"
+                    if 0 <= diff_3 < ventana_maxima and cid_3 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
 
-                # Regla 4: Cambio a VIVO (Sufijo 4) -> MENSAJE_CLAN_CHANNEL_ID
+                # Regla 4: Cambio a VIVO
                 if es_vivo:
-                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{ahora_actual.strftime('%Y%m%d_%H%M')}"
+                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{fecha_dia_str}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}4", "canal_destino_id": canal_clan_id})
                         HISTORIAL_ENVIADOS_CACHE[cid_4] = ahora_actual
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}4", "canal_destino_id": canal_clan_id})
 
-                # Regla 5: 35 minutos después de pasar a vivo (Valakas y Antharas) (Sufijo 5) -> MENSAJE_CLAN_CHANNEL_ID
-                if nombre_base_limpio in {"valakas", "antharas"} and es_vivo:
-                    clave_tiempo_vivo = f"{nombre_base_limpio}_timestamp_vivo_{ahora_actual.strftime('%Y%m%d')}"
-                    if clave_tiempo_vivo not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[clave_tiempo_vivo] = ahora_actual
-                    
-                    tiempo_desde_vivo = (ahora_actual - HISTORIAL_ENVIADOS_CACHE[clave_tiempo_vivo]).total_seconds()
-                    cid_5 = f"{nombre_base_limpio}_se_5_35m_{ahora_actual.strftime('%Y%m%d_%H%M')}"
-                    
-                    if 2100 <= tiempo_desde_vivo < 2220 and cid_5 not in HISTORIAL_ENVIADOS_CACHE:
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}5", "canal_destino_id": canal_clan_id})
-                        HISTORIAL_ENVIADOS_CACHE[cid_5] = ahora_actual
                 continue
 
             # ==========================================
@@ -285,18 +269,22 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
             if not dt_obj and not es_vivo:
                 continue
 
+            fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
+            ventana_maxima = intervalo_segundos * 2
+
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj or dt_obj.date() != ahora_actual.date():
                     continue
                 tiempo_objetivo = dt_obj if nombre_base_limpio in JEFS_ESPECIALES_RANDOM else dt_obj - timedelta(minutes=10)
                 diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
-                clave_id = f"{nombre_base_limpio}_antes_{dt_obj.strftime('%Y%m%d_%H%M')}"
-                if 0 <= diferencia_segundos < 120 and clave_id not in HISTORIAL_ENVIADOS_CACHE:
+                
+                clave_id = f"{nombre_base_limpio}_antes_{fecha_dia_str}_{dt_obj.strftime('%H%M')}"
+                if 0 <= diferencia_segundos < ventana_maxima and clave_id not in HISTORIAL_ENVIADOS_CACHE:
+                    HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
                     reg = jefe.copy()
                     reg["nombre_imagen_base"] = f"{nombre_base_limpio}1"
                     reg["canal_destino_id"] = canal_id
                     datos_procesados.append(reg)
-                    HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
                 continue
 
             elif tipo_filtro == "salio":
@@ -304,26 +292,25 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     continue
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
-                        # MODIFICACIÓN APLICADA: Clave fija por día para evitar el bucle/spam cada minuto
-                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{ahora_actual.strftime('%Y%m%d')}"
+                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{fecha_dia_str}"
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
                             reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
                             reg["canal_destino_id"] = canal_id
                             datos_procesados.append(reg)
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 else:
                     if dt_obj:
                         if dt_obj.date() != ahora_actual.date():
                             continue
                         diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
-                        clave_id_salio = f"{nombre_base_limpio}_salio_{dt_obj.strftime('%Y%m%d_%H%M')}"
-                        if 0 <= diferencia_segundos < 120 and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                        clave_id_salio = f"{nombre_base_limpio}_salio_{fecha_dia_str}_{dt_obj.strftime('%H%M')}"
+                        if 0 <= diferencia_segundos < ventana_maxima and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
                             reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
                             reg["canal_destino_id"] = canal_id
                             datos_procesados.append(reg)
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                 continue
 
         if not datos_procesados:
@@ -359,14 +346,25 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
 # BUCLE PERMANENTE EN SEGUNDO PLANO
 # ==========================================
 async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
+    global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     
     await bot_instance.wait_until_ready()
 
     while not bot_instance.is_closed():
         try:
+            ahora_actual = datetime.now(ZONA_ARGENTINA)
+
+            # MECANISMO DE LIMPIEZA DIARIA A LAS 04:00 AM HORA ARGENTINA
+            fecha_hoy = ahora_actual.date()
+            if ahora_actual.hour == 4 and ULTIMO_RESET_CACHE_DIA != fecha_hoy:
+                HISTORIAL_ENVIADOS_CACHE.clear()
+                ULTIMO_RESET_CACHE_DIA = fecha_hoy
+                logger.info("🧹 Caché de raids limpiada automáticamente a las 04:00 AM.")
+
             for tipo in ["principal", "antes", "salio", "super_epicos"]:
-                await procesar_ciclo_raids(bot_instance, ruta_json, tipo)
+                await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
+                
         except Exception as e:
             logger.error(f"❌ Error en el ciclo de monitoreo permanente: {e}")
         
