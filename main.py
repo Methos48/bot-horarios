@@ -63,7 +63,7 @@ NIVELES_JEFE_MANUAL = {
     "zariche": 85
 }
 
-# Elementos que devem quedar sin nivel (en blanco)
+# Elementos que deben quedar sin nivel (en blanco)
 NIVELES_VACIOS_EXTRA = {
     "asedio", "p v p", "x9", "x 9", "foto mes"
 }
@@ -413,10 +413,15 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
     
-    # Sincronizar los comandos de barra (Slash Commands) con Discord
+    # Sincronización instantánea de los comandos de barra en tu servidor de prueba/oficial
     try:
-        synced = await bot.tree.sync()
-        logger.info(f"✨ ¡Se sincronizaron {len(synced)} comandos de barra (slash commands) correctamente!")
+        # Reemplaza TU_SERVIDOR_ID_AQUI por el ID numérico de tu servidor de Discord
+        ID_SERVIDOR = discord.Object(id=TU_SERVIDOR_ID_AQUI)
+        
+        bot.tree.copy_global_to(guild=ID_SERVIDOR)
+        synced = await bot.tree.sync(guild=ID_SERVIDOR)
+        
+        logger.info(f"✨ ¡Se sincronizaron {len(synced)} comandos de barra al instante en el servidor!")
     except Exception as e:
         logger.error(f"❌ Error al sincronizar los comandos de barra: {e}")
 
