@@ -34,7 +34,7 @@ async def procesar_mensaje_texto(message):
 
 def limpiar_campos_pegados(linea):
     """
-    Inserta espacios automáticamente si detecta campos pegados:
+    Inserta espacios automáticamente si detecta campos pegados en la entrada:
     - Fecha pegada a hora con año (ej: 22/09/2622:00 -> 22/09/26 22:00)
     - Fecha pegada a hora sin año (ej: 22/0922:00 -> 22/09 22:00)
     - Nombre pegado a fecha (ej: Antharas22/09 -> Antharas 22/09)
@@ -49,25 +49,22 @@ def limpiar_campos_pegados(linea):
             
     return linea
 
-def limpiar_nombre_jefe(nombre_crudo):
+def limpiar_nombre_crudo(nombre_crudo):
     """
-    Limpia cualquier rastro de fecha (ej: 29/09/26) o caracteres basura 
-    que se hayan colado en la variable del nombre del jefe.
+    Remueve restos de fechas (ej: 29/09/26) o espacios múltiples de la cadena de entrada.
     """
     nombre_limpio = re.sub(r'\d{1,2}/\d{1,2}(?:/\d{2,4})?', '', nombre_crudo)
-    nombre_limpio = re.sub(r'\s+', ' ', nombre_limpio).strip()
-    return nombre_limpio
+    return re.sub(r'\s+', ' ', nombre_limpio).strip()
 
 def normalizar_nombre_y_nivel(nombre_crudo):
     """
-    Compara el nombre crudo (limpio de fechas) con los patrones permitidos 
-    y devuelve el nombre perfectamente estandarizado y su nivel correspondiente.
-    Si es Barakiel, devuelve None para descartarlo.
+    Compara el nombre crudo con la lista oficial para forzar la salida exacta requerida.
+    Excluye por completo a Barakiel.
     """
-    n_low = nombre_crudo.lower()
+    n_low = limpiador_claves(nombre_crudo)
 
     if "barakiel" in n_low:
-        return None, None # Descartado explícitamente
+        return None, None # Descartado
 
     if "balrog" in n_low:
         return "Balrog", "85"
@@ -104,13 +101,16 @@ def normalizar_nombre_y_nivel(nombre_crudo):
     elif "foto mes" in n_low or "fotomes" in n_low:
         return "Foto Mes", "-"
     else:
-        # Si no coincide con ninguno conocido, devuelve el original capitalizado prolijo
         return nombre_crudo.title(), "-"
+
+def limpiador_claves(texto):
+    """Normaliza texto eliminando espacios y acentos para comparación segura."""
+    return re.sub(r'[\s\-]+', '', texto.lower())
 
 def procesar_y_ordenar_texto(contenido_texto):
     """
-    Procesa bloques de texto, limpia fechas, normaliza nombres según la lista oficial,
-    descarta a Barakiel, evita duplicados y ordena cronológicamente.
+    Procesa la entrada línea por línea, unifica saltos partidos, interpreta 
+    correctamente VIVO o formato de fecha/hora, normaliza y ordena la salida.
     """
     lineas_crudas = contenido_texto.strip().split('\n')
     lineas_preliminares = []
@@ -119,9 +119,9 @@ def procesar_y_ordenar_texto(contenido_texto):
         l_limpia = l.strip()
         if not l_limpia:
             continue
-        l_blindada = limpiar_campos_pegados(l_limpia)
-        lineas_preliminares.append(l_blindada)
+        lineas_preliminares.append(limpiar_campos_pegados(l_limpia))
 
+    # Unir líneas partidas en la entrada (ej: Nombre en una línea y hora en la siguiente)
     lineas_limpias = []
     i = 0
     while i < len(lineas_preliminares):
@@ -143,12 +143,13 @@ def procesar_y_ordenar_texto(contenido_texto):
     anio_actual = datetime.now(ZONA_ARGENTINA).year
     hoy_dt = datetime.now(ZONA_ARGENTINA)
 
-    patron_vivo = re.compile(r'(.+?)\s+(vivo)', re.IGNORECASE)
+    # Patrones de entrada mejorados para capturar ordenes flexibles de texto
+    patron_vivo = re.compile(r'^(.*?)\s+(vivo)\b', re.IGNORECASE)
     patron_completo = re.compile(
-        r'(.+?)\s+'  
+        r'^(.*?)\s+'  
         r'(?:(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo)\s+)?'  
         r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)?\s*'  
-        r'(?:entre\s+)?(\d{1,2})(?::(\d{2}))?',  
+        r'(?:entre\s+)?(\d{1,2}):(\d{2})',  
         re.IGNORECASE
     )
 
@@ -169,19 +170,18 @@ def procesar_y_ordenar_texto(contenido_texto):
             nombre_crudo = match_completo.group(1).strip()
             fecha_str = match_completo.group(2)
             h_parte1 = match_completo.group(3)
-            h_parte2 = match_completo.group(4) or "00"
+            h_parte2 = match_completo.group(4)
             hora_str = f"{h_parte1}:{h_parte2}"
             es_vivo = False
         else:
             logger.warning(f"Línea {numero_linea} no coincide con el formato esperado: '{linea}'")
             continue
 
-        # --- LIMPIEZA, DESCARTE DE BARAKIEL Y NORMALIZACIÓN ---
-        nombre_base = limpiar_nombre_jefe(nombre_crudo)
+        # Limpiar y normalizar salida
+        nombre_base = limpiar_nombre_crudo(nombre_crudo)
         nombre_limpio, nivel_asignado = normalizar_nombre_y_nivel(nombre_base)
 
-        if nombre_limpio is None:
-            # Si retorna None significa que es Barakiel y debe ser descartado
+        if not nombre_limpio: # Descartado (Ej: Barakiel)
             continue
 
         if es_vivo:
@@ -217,8 +217,8 @@ def procesar_y_ordenar_texto(contenido_texto):
 
             estado_jefe = "MUERTO"
 
-        # Evitar duplicados usando la clave exacta del nombre normalizado
-        clave_key = nombre_limpio.lower()
+        # Control estricto de duplicados en la salida usando clave unificada
+        clave_key = limpiador_claves(nombre_limpio)
         if clave_key not in registros_dict or es_vivo:
             registros_dict[clave_key] = {
                 "nombre": nombre_limpio,
@@ -229,7 +229,7 @@ def procesar_y_ordenar_texto(contenido_texto):
                 "es_vivo": es_vivo
             }
 
-    # Ordenar registros finales (VIVOS primero, luego por cronología)
+    # Orden final exacto: Primero los VIVOS, luego ordenados cronológicamente
     registros_ordenados = sorted(list(registros_dict.values()), key=lambda x: (not x["es_vivo"], x["datetime"]))
     
     tabla_limpia = []
@@ -241,5 +241,5 @@ def procesar_y_ordenar_texto(contenido_texto):
             "tiempo_str": reg["tiempo_str"]
         })
 
-    logger.info(f"Texto procesado, normalizado y limpio (sin Barakiel): {len(tabla_limpia)} elementos listos.")
+    logger.info(f"Entrada analizada y salida formateada con éxito: {len(tabla_limpia)} registros.")
     return tabla_limpia
