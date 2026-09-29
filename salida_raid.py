@@ -304,7 +304,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro):
                     continue
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
-                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{ahora_actual.strftime('%Y%m%d_%H%M')}"
+                        # MODIFICACIÓN APLICADA: Clave fija por día para evitar el bucle/spam cada minuto
+                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{ahora_actual.strftime('%Y%m%d')}"
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             reg = jefe.copy()
                             reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
