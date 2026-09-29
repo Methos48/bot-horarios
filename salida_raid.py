@@ -214,7 +214,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
 
                 fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
-                ventana_maxima = intervalo_segundos * 2
+                
+                # MEJORA: Ventana de tolerancia robusta fija (90 segundos mínimos)
+                ventana_maxima = max(intervalo_segundos * 2, 90)
 
                 # Regla 1: 1 hora antes
                 if dt_obj:
@@ -240,9 +242,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
 
-                # Regla 4: Cambio a VIVO
+                # Regla 4: Cambio a VIVO (MEJORA: Clave dinámica con hora para permitir resucitaciones múltiples)
                 if es_vivo:
-                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{fecha_dia_str}"
+                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{fecha_dia_str}_{ahora_actual.strftime('%H%M')}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_4] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}4", "canal_destino_id": canal_clan_id})
@@ -270,7 +272,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 continue
 
             fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
-            ventana_maxima = intervalo_segundos * 2
+            
+            # MEJORA: Ventana de tolerancia robusta fija (90 segundos mínimos)
+            ventana_maxima = max(intervalo_segundos * 2, 90)
 
             if tipo_filtro == "antes":
                 if es_vivo or not dt_obj or dt_obj.date() != ahora_actual.date():
@@ -292,7 +296,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
-                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{fecha_dia_str}"
+                        # MEJORA: Clave dinámica con hora para permitir resucitaciones múltiples
+                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{fecha_dia_str}_{ahora_actual.strftime('%H%M')}"
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
