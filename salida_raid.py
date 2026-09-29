@@ -17,7 +17,7 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 # CACHÉ DE HISTORIAL Y CONTROL DINÁMICO
 # ==========================================
 HISTORIAL_ENVIADOS_CACHE = {}
-ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario a las 04:00 AM
+ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario por cambio de fecha
 
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL
@@ -215,7 +215,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
 
                 fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
                 
-                # MEJORA: Ventana de tolerancia robusta fija (90 segundos mínimos)
                 ventana_maxima = max(intervalo_segundos * 2, 90)
 
                 # Regla 1: 1 hora antes
@@ -242,9 +241,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
 
-                # Regla 4: Cambio a VIVO (MEJORA: Clave dinámica con hora para permitir resucitaciones múltiples)
+                # Regla 4: Cambio a VIVO (Clave fija por día para evitar alertas repetitivas cada minuto)
                 if es_vivo:
-                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{fecha_dia_str}_{ahora_actual.strftime('%H%M')}"
+                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{fecha_dia_str}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_4] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}4", "canal_destino_id": canal_clan_id})
@@ -273,7 +272,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
 
             fecha_dia_str = dt_obj.strftime('%Y%m%d') if dt_obj else ahora_actual.strftime('%Y%m%d')
             
-            # MEJORA: Ventana de tolerancia robusta fija (90 segundos mínimos)
             ventana_maxima = max(intervalo_segundos * 2, 90)
 
             if tipo_filtro == "antes":
@@ -296,8 +294,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
                     if es_vivo:
-                        # MEJORA: Clave dinámica con hora para permitir resucitaciones múltiples
-                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{fecha_dia_str}_{ahora_actual.strftime('%H%M')}"
+                        # Clave fija por día para evitar envíos duplicados por minuto
+                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{fecha_dia_str}"
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
@@ -360,12 +358,12 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
         try:
             ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-            # MECANISMO DE LIMPIEZA DIARIA A LAS 04:00 AM HORA ARGENTINA
+            # MECANISMO DE LIMPIEZA DIARIA ROBUSTO POR CAMBIO DE DÍA
             fecha_hoy = ahora_actual.date()
-            if ahora_actual.hour == 4 and ULTIMO_RESET_CACHE_DIA != fecha_hoy:
+            if ULTIMO_RESET_CACHE_DIA is None or fecha_hoy > ULTIMO_RESET_CACHE_DIA:
                 HISTORIAL_ENVIADOS_CACHE.clear()
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
-                logger.info("🧹 Caché de raids limpiada automáticamente a las 04:00 AM.")
+                logger.info("🧹 Caché de raids limpiada automáticamente por cambio de día.")
 
             for tipo in ["principal", "antes", "salio", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
