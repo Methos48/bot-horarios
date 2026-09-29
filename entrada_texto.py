@@ -34,15 +34,13 @@ async def procesar_mensaje_texto(message):
 
 def limpiar_campos_pegados(linea):
     """
-    Blindaje total y mejorado: Inserta espacios automáticamente si detecta campos pegados:
+    Inserta espacios automáticamente si detecta campos pegados:
     - Fecha pegada a hora con año (ej: 22/09/2622:00 -> 22/09/26 22:00)
     - Fecha pegada a hora sin año (ej: 22/0922:00 -> 22/09 22:00)
     - Nombre pegado a fecha (ej: Antharas22/09 -> Antharas 22/09)
     """
-    # 1. Si la fecha (con o sin año de 2 o 4 dígitos) está pegada directamente a la hora
     linea = re.sub(r'(\d{1,2}/\d{1,2}(?:/\d{2,4})?)(\d{1,2}:\d{2})', r'\1 \2', linea)
     
-    # 2. Si el nombre está pegado a la fecha
     match_nombre_fecha = re.search(r'^(.+?)(?=\d{1,2}/\d{1,2})', linea)
     if match_nombre_fecha:
         idx = match_nombre_fecha.end()
@@ -51,19 +49,72 @@ def limpiar_campos_pegados(linea):
             
     return linea
 
+def limpiar_nombre_jefe(nombre_crudo):
+    """
+    Limpia cualquier rastro de fecha (ej: 29/09/26) o caracteres basura 
+    que se hayan colado en la variable del nombre del jefe.
+    """
+    nombre_limpio = re.sub(r'\d{1,2}/\d{1,2}(?:/\d{2,4})?', '', nombre_crudo)
+    nombre_limpio = re.sub(r'\s+', ' ', nombre_limpio).strip()
+    return nombre_limpio
+
+def normalizar_nombre_y_nivel(nombre_crudo):
+    """
+    Compara el nombre crudo (limpio de fechas) con los patrones permitidos 
+    y devuelve el nombre perfectamente estandarizado y su nivel correspondiente.
+    Si es Barakiel, devuelve None para descartarlo.
+    """
+    n_low = nombre_crudo.lower()
+
+    if "barakiel" in n_low:
+        return None, None # Descartado explícitamente
+
+    if "balrog" in n_low:
+        return "Balrog", "85"
+    elif "electrical" in n_low or "electric" in n_low:
+        return "Electrical", "85"
+    elif "orfen" in n_low:
+        return "Orfen", "-"
+    elif "queen ant" in n_low or "queenant" in n_low:
+        return "Queen Ant", "-"
+    elif "core" in n_low:
+        return "Core", "-"
+    elif "zaken" in n_low:
+        return "Zaken", "-"
+    elif "baium" in n_low:
+        return "Baium", "-"
+    elif "frintezza" in n_low:
+        return "Frintezza", "-"
+    elif "freya" in n_low:
+        return "Freya", "-"
+    elif "zariche" in n_low:
+        return "Zariche", "-"
+    elif "valakas" in n_low:
+        return "Valakas", "-"
+    elif "antharas" in n_low:
+        return "Antharas", "-"
+    elif "fafur" in n_low or "fafureon" in n_low:
+        return "Fafureon", "-"
+    elif "asedio" in n_low:
+        return "Asedio", "-"
+    elif "p v p" in n_low or "pvp" in n_low:
+        return "P V P", "-"
+    elif "x 9" in n_low or "x9" in n_low:
+        return "X 9", "-"
+    elif "foto mes" in n_low or "fotomes" in n_low:
+        return "Foto Mes", "-"
+    else:
+        # Si no coincide con ninguno conocido, devuelve el original capitalizado prolijo
+        return nombre_crudo.title(), "-"
+
 def procesar_y_ordenar_texto(contenido_texto):
     """
-    Procesa bloques de texto ultra flexibles y blindados:
-    - Corrige y separa campos totalmente pegados (NombreFechaHora).
-    - Une nombres arriba y horarios abajo si están en líneas separadas.
-    - Maneja 'VIVO', fechas completas, con días de la semana o sin fecha (asumiendo hoy).
-    - Extrae la primera hora de rangos tipo 'entre 22 y 22:30' o '22:00 - 22:30'.
-    - Filtra Barakiel, renombra Balrog y Electrical, y ordena por hora argentina.
+    Procesa bloques de texto, limpia fechas, normaliza nombres según la lista oficial,
+    descarta a Barakiel, evita duplicados y ordena cronológicamente.
     """
     lineas_crudas = contenido_texto.strip().split('\n')
     lineas_preliminares = []
     
-    # --- PASO 1: APLICAR BLINDAJE DE CAMPOS PEGADOS Y UNIFICAR LÍNEAS ---
     for l in lineas_crudas:
         l_limpia = l.strip()
         if not l_limpia:
@@ -88,13 +139,11 @@ def procesar_y_ordenar_texto(contenido_texto):
         lineas_limpias.append(linea_actual)
         i += 1
 
-    registros = []
+    registros_dict = {} 
     anio_actual = datetime.now(ZONA_ARGENTINA).year
     hoy_dt = datetime.now(ZONA_ARGENTINA)
 
     patron_vivo = re.compile(r'(.+?)\s+(vivo)', re.IGNORECASE)
-    
-    # Patrón general robusto para extraer componentes
     patron_completo = re.compile(
         r'(.+?)\s+'  
         r'(?:(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo)\s+)?'  
@@ -127,20 +176,13 @@ def procesar_y_ordenar_texto(contenido_texto):
             logger.warning(f"Línea {numero_linea} no coincide con el formato esperado: '{linea}'")
             continue
 
-        # --- APLICAR FILTROS DE NOMBRES Y NIVELES ---
-        if "flame of splendor barakiel" in nombre_crudo.lower():
-            logger.info(f"Filtro: Excluido el jefe '{nombre_crudo}'")
+        # --- LIMPIEZA, DESCARTE DE BARAKIEL Y NORMALIZACIÓN ---
+        nombre_base = limpiar_nombre_jefe(nombre_crudo)
+        nombre_limpio, nivel_asignado = normalizar_nombre_y_nivel(nombre_base)
+
+        if nombre_limpio is None:
+            # Si retorna None significa que es Barakiel y debe ser descartado
             continue
-            
-        if "balrog devourer pvp" in nombre_crudo.lower() or "balrog" in nombre_crudo.lower():
-            nombre_limpio = "Balrog"
-            nivel_asignado = "85"
-        elif "execution electrical pvp" in nombre_crudo.lower() or "electrical" in nombre_crudo.lower() or "electric" in nombre_crudo.lower():
-            nombre_limpio = "Electrical"
-            nivel_asignado = "85"
-        else:
-            nombre_limpio = nombre_crudo
-            nivel_asignado = "-"
 
         if es_vivo:
             tiempo_str_visual = "VIVO"
@@ -175,16 +217,20 @@ def procesar_y_ordenar_texto(contenido_texto):
 
             estado_jefe = "MUERTO"
 
-        registros.append({
-            "nombre": nombre_limpio,
-            "nivel": nivel_asignado,
-            "estado": estado_jefe,
-            "tiempo_str": tiempo_str_visual,
-            "datetime": dt,
-            "es_vivo": es_vivo
-        })
+        # Evitar duplicados usando la clave exacta del nombre normalizado
+        clave_key = nombre_limpio.lower()
+        if clave_key not in registros_dict or es_vivo:
+            registros_dict[clave_key] = {
+                "nombre": nombre_limpio,
+                "nivel": nivel_asignado,
+                "estado": estado_jefe,
+                "tiempo_str": tiempo_str_visual,
+                "datetime": dt,
+                "es_vivo": es_vivo
+            }
 
-    registros_ordenados = sorted(registros, key=lambda x: (not x["es_vivo"], x["datetime"]))
+    # Ordenar registros finales (VIVOS primero, luego por cronología)
+    registros_ordenados = sorted(list(registros_dict.values()), key=lambda x: (not x["es_vivo"], x["datetime"]))
     
     tabla_limpia = []
     for reg in registros_ordenados:
@@ -195,5 +241,5 @@ def procesar_y_ordenar_texto(contenido_texto):
             "tiempo_str": reg["tiempo_str"]
         })
 
-    logger.info(f"Texto procesado, filtrado y ordenado con éxito bajo hora argentina: {len(tabla_limpia)} elementos listos para main.")
+    logger.info(f"Texto procesado, normalizado y limpio (sin Barakiel): {len(tabla_limpia)} elementos listos.")
     return tabla_limpia
