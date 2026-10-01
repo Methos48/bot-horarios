@@ -14,7 +14,7 @@ logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
 # ==========================================
-# CACHÉ DE HISTORIAL Y CONTROL DINÁMICO
+# CACHÉ DE HISTORIAL Y CONTROL DINÁMICO (Antiduplicados)
 # ==========================================
 HISTORIAL_ENVIADOS_CACHE = {}
 ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario por cambio de fecha
@@ -116,7 +116,6 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     if tipo_filtro in ["PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos", "antes", "salio"]:
         subcarpetas_a_probar = ["raid/antes/", ""]
     else:
-        # Busca estrictamente en la estructura basada en TEMA_ACTIVO (ej: rojo/raid/, rojo/)
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
     for sub in subcarpetas_a_probar:
@@ -215,7 +214,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
 
                 tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
-                ventana_maxima = max(intervalo_segundos * 2, 90)
+                ventana_maxima = max(intervalo_segundos * 2, 180)
 
                 if dt_obj:
                     t_obj_1 = dt_obj - timedelta(hours=1)
@@ -267,7 +266,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 continue
 
             tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
-            ventana_maxima = max(intervalo_segundos * 2, 90)
+            ventana_maxima = max(intervalo_segundos * 2, 180)
 
             # --- SERVICIO: PUBLICAR_RAIDS_ANTES ---
             if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
@@ -312,34 +311,18 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                             datos_procesados.append(reg)
                 continue
 
-            # --- SERVICIO: PUBLICAR_RAIDS (Principal adaptado a tus reglas específicas) ---
+            # --- SERVICIO: PUBLICAR_RAIDS (Principal con control anti-duplicados estricto) ---
             else:
                 if not dt_obj:
                     continue
 
-                # REGLA: Solo publica los raids del día en el que estamos
                 if dt_obj.date() != ahora_actual.date():
                     continue
 
-                tiempo_objetivo = None
-
-                # 1. Valakas, Antharas, Fafureon: publicados a las 10:00 AM tanto el día antes como el día que salen
                 if nombre_base_limpio in raids_super_epicos_nombres:
-                    # Si el raid sale en una fecha concreta, su "día antes" se calcula restando 1 día, y se fija a las 10:00 AM.
-                    # O bien, si es el día de salida exacto, se programa a las 10:00 AM (restando 30 min según indicaste para el aviso exacto).
-                    # Definimos el objetivo base a las 10:00 AM del día del raid o del día anterior:
-                    pass  # Manejado abajo mediante la evaluación de la hora objetivo a las 10:00 AM
-
-                # Vamos a calcular el `tiempo_objetivo` exacto según el tipo de jefe:
-                if nombre_base_limpio in raids_super_epicos_nombres:
-                    # Queremos que se publique a las 10:00 AM. Verificamos si estamos evaluando el día de salida o el día anterior.
-                    # Creamos las dos marcas de tiempo de las 10:00 AM:
-                    # - Día de salida a las 10:00 AM menos 30 min (es decir, 09:30 AM o exacto a las 10:00 AM restando 30m)
-                    # - Día anterior a las 10:00 AM
                     hora_10_salida = dt_obj.replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(minutes=30)
                     hora_10_dia_antes = (dt_obj - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
                     
-                    # Comparamos contra la hora actual para ver si encaja en alguna de las dos ventanas
                     for t_obj in [hora_10_salida, hora_10_dia_antes]:
                         diff = (ahora_actual - t_obj).total_seconds()
                         clave_id_se = f"{nombre_base_limpio}_principal_se_{t_obj.strftime('%Y%m%d_%H%M')}"
@@ -353,7 +336,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
 
                 elif nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
-                    # Deben ser publicados a las 2:00 PM (14:00 horas) hora argentina del día que salen
                     hora_14_salida = dt_obj.replace(hour=14, minute=0, second=0, microsecond=0)
                     diff = (ahora_actual - hora_14_salida).total_seconds()
                     clave_id_rand = f"{nombre_base_limpio}_principal_rand_{tiempo_key}"
@@ -367,11 +349,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     continue
 
                 else:
-                    # Demás raids normales del día (si salen entre las 18 y las 23 horas, o a su hora exacta programada)
-                    # Opcionalmente validamos el rango de 18 a 23 si es tu criterio, o la hora exacta de su respawn:
                     if 18 <= dt_obj.hour <= 23:
                         diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
-                        clave_id_normal = f"{nombre_base_limpio}_principal_{tiempo_key}"
+                        clave_id_normal = f"{nombre_base_limpio}_principal_normal_{tiempo_key}"
                         
                         if 0 <= diferencia_segundos < ventana_maxima and clave_id_normal not in HISTORIAL_ENVIADOS_CACHE:
                             HISTORIAL_ENVIADOS_CACHE[clave_id_normal] = ahora_actual
@@ -423,7 +403,6 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
         try:
             ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-            # MECANISMO DE LIMPIEZA DIARIA ROBUSTO POR CAMBIO DE DÍA
             fecha_hoy = ahora_actual.date()
             if ULTIMO_RESET_CACHE_DIA is None or fecha_hoy > ULTIMO_RESET_CACHE_DIA:
                 HISTORIAL_ENVIADOS_CACHE.clear()
