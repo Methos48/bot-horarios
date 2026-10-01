@@ -20,9 +20,15 @@ HISTORIAL_ENVIADOS_CACHE = {}
 ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario por cambio de fecha
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTILO VISUAL
+# CONFIGURACIÓN DE TEMA / ESTILO VISUAL Y FUENTES
 # ==========================================
 TEMA_ACTIVO = "rojo"
+
+# Carga de recursos desde config
+FUENTE_BANKGOTHIC = getattr(config, "FUENTE_BANKGOTHIC", "arial.ttf")
+FUENTE_APTOS = getattr(config, "FUENTE_APTOS", "arial.ttf")
+FUENTE_BIOME = getattr(config, "FUENTE_BIOME", "arial.ttf")
+DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 
 # ==========================================
 # POSICIÓN MANUAL DE LA HORA (Coordenadas X e Y)
@@ -67,6 +73,34 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
     "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
     "otros_60_mas": "si", "otros_60_menos": "no"
 }
+
+
+def aplicar_textura_a_texto(imagen_base, texto, x, y, ruta_fuente, ruta_textura, tamano_fuente=60):
+    """
+    Dibuja texto texturizado utilizando una imagen de textura superpuesta mediante una máscara alfa.
+    """
+    try:
+        fuente = ImageFont.truetype(ruta_fuente, size=tamano_fuente)
+    except IOError:
+        fuente = ImageFont.load_default()
+
+    # 1. Crear una capa de texto temporal en escala de grises para la máscara
+    txt_capa = Image.new("L", imagen_base.size, 0)
+    draw_txt = ImageDraw.Draw(txt_capa)
+    draw_txt.text((x, y), texto, fill=255, font=fuente)
+
+    # 2. Cargar y adaptar la textura si existe, de lo contrario usar color gris/blanco plano
+    if ruta_textura and os.path.exists(ruta_textura):
+        try:
+            textura = Image.open(ruta_textura).convert("RGBA")
+            textura = textura.resize(imagen_base.size)
+        except Exception:
+            textura = Image.new("RGBA", imagen_base.size, (200, 200, 200, 255))
+    else:
+        textura = Image.new("RGBA", imagen_base.size, (200, 200, 200, 255))
+
+    # 3. Pegar la textura sobre la imagen base usando la máscara del texto
+    imagen_base.paste(textura, (0, 0), txt_capa)
 
 
 def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
@@ -151,8 +185,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
     else:  # PUBLICAR_RAIDS (Servicio principal)
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "PUBLICAR_RAIDS"
-        # PRUEBA: Forzamos el canal especificado por ti
-        canal_id = 1549577944999927999 
+        canal_id = 1549577944999927999  # Canal de pruebas asignado
     
     if tipo_filtro != "super_epicos" and not canal_id:
         return
@@ -223,26 +256,26 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     cid_1 = f"{nombre_base_limpio}_se_1_{tiempo_key}"
                     if 0 <= diff_1 < ventana_maxima and cid_1 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_1] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}1", "canal_destino_id": canal_envio_id})
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}m", "canal_destino_id": canal_envio_id})
 
                     t_obj_2 = dt_obj - timedelta(minutes=30)
                     diff_2 = (ahora_actual - t_obj_2).total_seconds()
                     cid_2 = f"{nombre_base_limpio}_se_2_{tiempo_key}"
                     if 0 <= diff_2 < ventana_maxima and cid_2 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_2] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}2", "canal_destino_id": canal_envio_id})
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_envio_id})
 
                     diff_3 = (ahora_actual - dt_obj).total_seconds()
                     cid_3 = f"{nombre_base_limpio}_se_3_{tiempo_key}"
                     if 0 <= diff_3 < ventana_maxima and cid_3 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_clan_id})
 
                 if es_vivo:
                     cid_4 = f"{nombre_base_limpio}_se_4_vivo_{tiempo_key}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_4] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}4", "canal_destino_id": canal_clan_id})
+                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_clan_id})
 
                 continue
 
@@ -266,14 +299,14 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             # --- SERVICIO DE PRUEBA: PUBLICAR_RAIDS (Valakas cada 1 minuto) ---
             if tipo_filtro == "PUBLICAR_RAIDS":
                 if nombre_base_limpio == "valakas":
-                    # Creamos una clave única basada en el minuto actual para que se envíe una vez por minuto
                     minuto_key = ahora_actual.strftime('%Y%m%d_%H%M')
                     clave_id_prueba = f"valakas_prueba_1min_{minuto_key}"
                     
                     if clave_id_prueba not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[clave_id_prueba] = ahora_actual
                         reg = jefe.copy()
-                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
+                        # Usa 'h' para el mismo día
+                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}h"
                         reg["canal_destino_id"] = canal_id
                         datos_procesados.append(reg)
                 continue
@@ -295,7 +328,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 if 0 <= diferencia_segundos < ventana_maxima and clave_id not in HISTORIAL_ENVIADOS_CACHE:
                     HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
                     reg = jefe.copy()
-                    reg["nombre_imagen_base"] = f"{nombre_base_limpio}1"
+                    # Si es súper épico usa 'm' (día antes), de lo contrario nombre base
+                    sufijo = "m" if nombre_base_limpio in raids_super_epicos_nombres else ""
+                    reg["nombre_imagen_base"] = f"{nombre_base_limpio}{sufijo}"
                     reg["canal_destino_id"] = canal_id
                     datos_procesados.append(reg)
                 continue
@@ -310,7 +345,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
+                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
                             reg["canal_destino_id"] = canal_id
                             datos_procesados.append(reg)
                 else:
@@ -322,7 +357,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         if 0 <= diferencia_segundos < ventana_maxima and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
                             HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
                             reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
+                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
                             reg["canal_destino_id"] = canal_id
                             datos_procesados.append(reg)
                 continue
@@ -345,21 +380,20 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             if not ruta_imagen:
                 continue
                 
-            # Abrir imagen y estampar la hora actual usando POS_X y POS_Y
+            # Abrir imagen y aplicar fuente y textura configurada para la hora
             img = Image.open(ruta_imagen).convert("RGBA")
-            draw = ImageDraw.Draw(img)
-            
-            # Formato de hora actual (ej. 16:18)
             texto_hora = ahora_actual.strftime("%H:%M")
             
-            try:
-                # Intento cargar una fuente estándar, si no existe usa la por defecto
-                fuente = ImageFont.truetype("arial.ttf", size=24)
-            except IOError:
-                fuente = ImageFont.load_default()
-                
-            # Dibujar el texto en las coordenadas configuradas
-            draw.text((POS_X, POS_Y), texto_hora, fill=(255, 255, 255, 255), font=fuente)
+            # Aplicar textura utilizando FUENTE_BANKGOTHIC
+            aplicar_textura_a_texto(
+                imagen_base=img,
+                texto=texto_hora,
+                x=POS_X,
+                y=POS_Y,
+                ruta_fuente=FUENTE_BANKGOTHIC,
+                ruta_textura=DIR_TEXTURA,
+                tamano_fuente=60
+            )
             
             with io.BytesIO() as image_binary:
                 img.convert("RGB").save(image_binary, "PNG")
