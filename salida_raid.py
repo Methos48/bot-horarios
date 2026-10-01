@@ -151,7 +151,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
     else:  # PUBLICAR_RAIDS (Servicio principal)
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "PUBLICAR_RAIDS"
-        canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+        # PRUEBA: Forzamos el canal especificado por ti
+        canal_id = 1549577944999927999 
     
     if tipo_filtro != "super_epicos" and not canal_id:
         return
@@ -246,9 +247,9 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 continue
 
             # ==========================================
-            # FILTROS DE LOS 3 SERVICIOS PRINCIPALES
+            # FILTROS DE LOS SERVICIOS PRINCIPALES
             # ==========================================
-            if not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
+            if tipo_filtro != "PUBLICAR_RAIDS" and not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
                 continue
                 
             estado = jefe.get("estado", "").upper()
@@ -261,6 +262,21 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
                 except ValueError:
                     pass
+
+            # --- SERVICIO DE PRUEBA: PUBLICAR_RAIDS (Valakas cada 1 minuto) ---
+            if tipo_filtro == "PUBLICAR_RAIDS":
+                if nombre_base_limpio == "valakas":
+                    # Creamos una clave única basada en el minuto actual para que se envíe una vez por minuto
+                    minuto_key = ahora_actual.strftime('%Y%m%d_%H%M')
+                    clave_id_prueba = f"valakas_prueba_1min_{minuto_key}"
+                    
+                    if clave_id_prueba not in HISTORIAL_ENVIADOS_CACHE:
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_prueba] = ahora_actual
+                        reg = jefe.copy()
+                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
+                        reg["canal_destino_id"] = canal_id
+                        datos_procesados.append(reg)
+                continue
 
             if not dt_obj and not es_vivo:
                 continue
@@ -311,56 +327,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                             datos_procesados.append(reg)
                 continue
 
-            # --- SERVICIO: PUBLICAR_RAIDS (Principal con control anti-duplicados estricto) ---
-            else:
-                if not dt_obj:
-                    continue
-
-                if dt_obj.date() != ahora_actual.date():
-                    continue
-
-                if nombre_base_limpio in raids_super_epicos_nombres:
-                    hora_10_salida = dt_obj.replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(minutes=30)
-                    hora_10_dia_antes = (dt_obj - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
-                    
-                    for t_obj in [hora_10_salida, hora_10_dia_antes]:
-                        diff = (ahora_actual - t_obj).total_seconds()
-                        clave_id_se = f"{nombre_base_limpio}_principal_se_{t_obj.strftime('%Y%m%d_%H%M')}"
-                        if 0 <= diff < ventana_maxima and clave_id_se not in HISTORIAL_ENVIADOS_CACHE:
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_se] = ahora_actual
-                            reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
-                            reg["canal_destino_id"] = canal_id
-                            datos_procesados.append(reg)
-                            break
-                    continue
-
-                elif nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
-                    hora_14_salida = dt_obj.replace(hour=14, minute=0, second=0, microsecond=0)
-                    diff = (ahora_actual - hora_14_salida).total_seconds()
-                    clave_id_rand = f"{nombre_base_limpio}_principal_rand_{tiempo_key}"
-                    
-                    if 0 <= diff < ventana_maxima and clave_id_rand not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_rand] = ahora_actual
-                        reg = jefe.copy()
-                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
-                        reg["canal_destino_id"] = canal_id
-                        datos_procesados.append(reg)
-                    continue
-
-                else:
-                    if 18 <= dt_obj.hour <= 23:
-                        diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
-                        clave_id_normal = f"{nombre_base_limpio}_principal_normal_{tiempo_key}"
-                        
-                        if 0 <= diferencia_segundos < ventana_maxima and clave_id_normal not in HISTORIAL_ENVIADOS_CACHE:
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_normal] = ahora_actual
-                            reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
-                            reg["canal_destino_id"] = canal_id
-                            datos_procesados.append(reg)
-                    continue
-
         if not datos_procesados:
             return
 
@@ -379,7 +345,21 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             if not ruta_imagen:
                 continue
                 
+            # Abrir imagen y estampar la hora actual usando POS_X y POS_Y
             img = Image.open(ruta_imagen).convert("RGBA")
+            draw = ImageDraw.Draw(img)
+            
+            # Formato de hora actual (ej. 16:18)
+            texto_hora = ahora_actual.strftime("%H:%M")
+            
+            try:
+                # Intento cargar una fuente estándar, si no existe usa la por defecto
+                fuente = ImageFont.truetype("arial.ttf", size=24)
+            except IOError:
+                fuente = ImageFont.load_default()
+                
+            # Dibujar el texto en las coordenadas configuradas
+            draw.text((POS_X, POS_Y), texto_hora, fill=(255, 255, 255, 255), font=fuente)
             
             with io.BytesIO() as image_binary:
                 img.convert("RGB").save(image_binary, "PNG")
