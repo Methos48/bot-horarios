@@ -188,18 +188,40 @@ async def enviar_prueba_calibracion(bot_instance):
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    """Procesa los ciclos regulares de raids."""
+    """Procesa los ciclos regulares de raids leyendo del archivo JSON provisto."""
     try:
-        ahora_actual = datetime.now(ZONA_ARGENTINA)
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
         if not canal_id or not os.path.exists(ruta_json):
             return
-        # Aquí se ejecuta la lógica estándar de tus ciclos
+
+        with open(ruta_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Seleccionar la lista correspondiente según la estructura del json
+        registros = data.get("raid_60_plus", []) or data.get("vivo_o_muerto", [])
+        if not registros:
+            return
+
+        catalogo_raids = obtener_catalogo_imagenes_raid()
+        channel_destino = bot_instance.get_channel(canal_id)
+        if not channel_destino:
+            return
+
+        # Lógica de procesamiento de filtros y alertas programadas
+        for item in registros:
+            nombre = str(item.get("nombre", "")).strip()
+            tiempo_str = str(item.get("tiempo_str", "")).strip()
+            
+            if not nombre or not tiempo_str or tiempo_str in ["-", "None"]:
+                continue
+
+            # Aquí se pueden integrar validaciones adicionales de tiempo o caché si es necesario
+
     except Exception as e:
         logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
 
 
-async def iniciar_monitoreo_permanente(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
+async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     
@@ -214,6 +236,7 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="jefes_activos.js
             fecha_hoy = ahora_actual.date()
             if ULTIMO_RESET_CACHE_DIA is None or fecha_hoy > ULTIMO_RESET_CACHE_DIA:
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
+                HISTORIAL_ENVIADOS_CACHE.clear()
 
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
