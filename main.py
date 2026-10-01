@@ -541,10 +541,3 @@ async def on_message(message):
             logger.error(f"Error procesando entrada manual: {e}")
 
     await bot.process_commands(message)
-
-if __name__ == "__main__":
-    keep_alive()
-    if config.DISCORD_TOKEN:
-        bot.run(config.DISCORD_TOKEN)
-    else:
-        logger.critical("❌ No se encontró el DISCORD_TOKEN.")
