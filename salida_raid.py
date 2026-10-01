@@ -20,7 +20,7 @@ HISTORIAL_ENVIADOS_CACHE = {}
 ULTIMO_RESET_CACHE_DIA = None  
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL Y FUENTES
+# CONFIGURACIÓN DE TEMA / ESTILO VISUAL Y FUENTES
 # ==========================================
 TEMA_ACTIVO = "rojo"  # Puede cambiar a "morado", etc.
 
@@ -104,7 +104,6 @@ def obtener_catalogo_imagenes_raid():
                 ruta_completa = os.path.join(root, archivo)
                 clave_relativa = os.path.relpath(ruta_completa, directorio_base).replace("\\", "/")
                 catalogo[clave_relativa.lower()] = ruta_completa
-                # Guardar también solo el nombre del archivo para búsqueda directa rápida
                 catalogo[archivo.lower()] = ruta_completa
                 
     return catalogo
@@ -113,7 +112,6 @@ def obtener_catalogo_imagenes_raid():
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS"):
     nombre_limpio = nombre_base_raid.strip().lower()
     
-    # Definir carpetas a probar según tu estructura exacta (imagen/raid/raid/rojo/raid/ o morado/raid/)
     rutas_candidatas = [
         f"{tema}/raid/{nombre_limpio}.png",
         f"{tema}/{nombre_limpio}.png",
@@ -123,18 +121,15 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
         f"{nombre_limpio}.png"
     ]
 
-    # Soporte para sufijos 'h' o 'm' si aplican (como antharash, valakasm, etc.)
     for sufijo in ['h', 'm']:
         rutas_candidatas.insert(0, f"{tema}/raid/{nombre_limpio}{sufijo}.png")
         rutas_candidatas.insert(0, f"raid/{tema}/raid/{nombre_limpio}{sufijo}.png")
 
     for ruta in rutas_candidatas:
-        # Buscar coincidencia exacta en las claves del catálogo
         for clave_cat in catalogo:
             if clave_cat.endswith(ruta.lower()) or clave_cat == ruta.lower():
                 return catalogo[clave_cat]
                 
-    # Búsqueda flexible de respaldo por nombre de archivo puro en todo el catálogo
     for clave, ruta_completa in catalogo.items():
         if nombre_limpio in clave:
             return ruta_completa
@@ -148,7 +143,7 @@ async def enviar_prueba_calibracion(bot_instance):
     tan pronto el bot se conecta y está listo.
     """
     await bot_instance.wait_until_ready()
-    await asyncio.sleep(3) # Pausa para estabilidad
+    await asyncio.sleep(3)
     
     canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None) or 1549577944999927999
     channel_destino = bot_instance.get_channel(canal_id)
@@ -166,7 +161,7 @@ async def enviar_prueba_calibracion(bot_instance):
     if ruta_imagen and os.path.exists(ruta_imagen):
         try:
             img = Image.open(ruta_imagen).convert("RGBA")
-            texto_hora = "22:30"  # Hora fija de calibración
+            texto_hora = "22:30"
             
             aplicar_textura_a_texto(
                 imagen_base=img,
@@ -193,13 +188,15 @@ async def enviar_prueba_calibracion(bot_instance):
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    # Lógica de procesamiento para ciclos de raids regulares
-    ahora_actual = datetime.now(ZONA_ARGENTINA)
-    canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    if not canal_id or not os.path.exists(ruta_json):
-        return
-
-    # Aquí continúa tu lógica normal de lectura de JSON y envío según el tipo_filtro...
+    """Procesa los ciclos regulares de raids."""
+    try:
+        ahora_actual = datetime.now(ZONA_ARGENTINA)
+        canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+        if not canal_id or not os.path.exists(ruta_json):
+            return
+        # Aquí se ejecuta la lógica estándar de tus ciclos
+    except Exception as e:
+        logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
 
 
 async def iniciar_monitoreo_permanente(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
@@ -220,3 +217,8 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="jefes_activos.js
 
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
+                
+        except Exception as e:
+            logger.error(f"❌ Error en el ciclo de monitoreo permanente: {e}")
+        
+        await asyncio.sleep(intervalo_segundos)
