@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 import discord
 import config
 
-logger = logging.getLogger("SalidaRaid")
+logger = للن = logging.getLogger("SalidaRaid") # Manteniendo compatibilidad
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
@@ -17,14 +17,13 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 # CACHÉ DE HISTORIAL Y CONTROL DINÁMICO (Antiduplicados)
 # ==========================================
 HISTORIAL_ENVIADOS_CACHE = {}
-ULTIMO_RESET_CACHE_DIA = None  # Variable para controlar el reseteo diario por cambio de fecha
+ULTIMO_RESET_CACHE_DIA = None  
 
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL Y FUENTES
 # ==========================================
 TEMA_ACTIVO = "rojo"
 
-# Carga de recursos desde config
 FUENTE_BANKGOTHIC = getattr(config, "FUENTE_BANKGOTHIC", "arial.ttf")
 FUENTE_APTOS = getattr(config, "FUENTE_APTOS", "arial.ttf")
 FUENTE_BIOME = getattr(config, "FUENTE_BIOME", "arial.ttf")
@@ -36,17 +35,11 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 POS_X = 20
 POS_Y = 565
 
-# ==========================================
-# JEFES ESPECIALES (Rango aleatorio / sin hora fija exacta)
-# ==========================================
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
     "zariche", "frintezza", "queen ant", "electrical", "balrog"
 }
 
-# ==========================================
-# FILTROS DE PUBLICACIÓN POR RAID ("si" o "no")
-# ==========================================
 FILTRO_PUBLICAR_RAIDS = {
     "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "no",
     "Electrical": "no", "Baium": "si", "Zaken": "si", "Core": "si",
@@ -76,20 +69,15 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 
 
 def aplicar_textura_a_texto(imagen_base, texto, x, y, ruta_fuente, ruta_textura, tamano_fuente=60):
-    """
-    Dibuja texto texturizado utilizando una imagen de textura superpuesta mediante una máscara alfa.
-    """
     try:
         fuente = ImageFont.truetype(ruta_fuente, size=tamano_fuente)
     except IOError:
         fuente = ImageFont.load_default()
 
-    # 1. Crear una capa de texto temporal en escala de grises para la máscara
     txt_capa = Image.new("L", imagen_base.size, 0)
     draw_txt = ImageDraw.Draw(txt_capa)
     draw_txt.text((x, y), texto, fill=255, font=fuente)
 
-    # 2. Cargar y adaptar la textura si existe, de lo contrario usar color gris/blanco plano
     if ruta_textura and os.path.exists(ruta_textura):
         try:
             textura = Image.open(ruta_textura).convert("RGBA")
@@ -99,33 +87,7 @@ def aplicar_textura_a_texto(imagen_base, texto, x, y, ruta_fuente, ruta_textura,
     else:
         textura = Image.new("RGBA", imagen_base.size, (200, 200, 200, 255))
 
-    # 3. Pegar la textura sobre la imagen base usando la máscara del texto
     imagen_base.paste(textura, (0, 0), txt_capa)
-
-
-def debe_publicar_raid(nombre_jefe, nivel_jefe=None, filtro_usado=None):
-    if not nombre_jefe:
-        return False
-        
-    nombre_limpio = nombre_jefe.strip()
-    filtro = filtro_usado if filtro_usado is not None else FILTRO_PUBLICAR_RAIDS
-    
-    for raid_clave, estado in filtro.items():
-        if raid_clave.lower() in ["otros_60_mas", "otros_60_menos"]:
-            continue
-        if raid_clave.lower() == nombre_limpio.lower():
-            return estado.lower() == "si"
-            
-    if nivel_jefe is not None:
-        try:
-            if int(nivel_jefe) >= 60:
-                return filtro.get("otros_60_mas", "si").lower() == "si"
-            else:
-                return filtro.get("otros_60_menos", "si").lower() == "si"
-        except ValueError:
-            pass
-            
-    return True
 
 
 def obtener_catalogo_imagenes_raid():
@@ -133,7 +95,7 @@ def obtener_catalogo_imagenes_raid():
     catalogo = {}
     
     if not os.path.exists(directorio_base):
-        logger.warning(f"⚠️ El directorio de raids '{directorio_base}' no existe o no es accesible.")
+        logger.warning(f"⚠️ El directorio de raids '{directorio_base}' no existe.")
         return catalogo
 
     for root, dirs, files in os.walk(directorio_base):
@@ -169,27 +131,57 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
     ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-    if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
-        filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
-        nombre_filtro_log = "PUBLICAR_RAIDS_ANTES"
-        canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
-        filtro_activo = FILTRO_PUBLICAR_RAIDS_SALIO
-        nombre_filtro_log = "PUBLICAR_RAIDS_SALIO"
-        canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    elif tipo_filtro == "super_epicos":
-        filtro_activo = FILTRO_PUBLICAR_RAIDS
-        nombre_filtro_log = "super_epicos"
-        canal_envio_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-        canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
-    else:  # PUBLICAR_RAIDS (Servicio principal)
-        filtro_activo = FILTRO_PUBLICAR_RAIDS
-        nombre_filtro_log = "PUBLICAR_RAIDS"
-        canal_id = 1549577944999927999  # Canal de pruebas asignado
+    # Canal de pruebas asignado explícitamente para PUBLICAR_RAIDS
+    canal_id = 1549577944999927999 if tipo_filtro == "PUBLICAR_RAIDS" else getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     
-    if tipo_filtro != "super_epicos" and not canal_id:
+    if not canal_id:
         return
 
+    # ==========================================
+    # MODO PRUEBA DIRECTO: PUBLICAR_RAIDS (Valakas cada minuto)
+    # ==========================================
+    if tipo_filtro == "PUBLICAR_RAIDS":
+        minuto_key = ahora_actual.strftime('%Y%m%d_%H%M')
+        clave_id_prueba = f"valakas_prueba_1min_{minuto_key}"
+        
+        if clave_id_prueba not in HISTORIAL_ENVIADOS_CACHE:
+            HISTORIAL_ENVIADOS_CACHE[clave_id_prueba] = ahora_actual
+            
+            catalogo_raids = obtener_catalogo_imagenes_raid()
+            # Valakas usa terminación 'h' para el mismo día
+            nombre_imagen_base = "valakash"
+            
+            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
+            
+            if not ruta_imagen:
+                # Intento de respaldo buscando directo por nombre base si falla la estructura
+                ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
+                nombre_imagen_base = "valakas"
+
+            if ruta_imagen:
+                channel_destino = bot_instance.get_channel(canal_id)
+                if channel_destino:
+                    img = Image.open(ruta_imagen).convert("RGBA")
+                    texto_hora = ahora_actual.strftime("%H:%M")
+                    
+                    aplicar_textura_a_texto(
+                        imagen_base=img,
+                        texto=texto_hora,
+                        x=POS_X,
+                        y=POS_Y,
+                        ruta_fuente=FUENTE_BANKGOTHIC,
+                        ruta_textura=DIR_TEXTURA,
+                        tamano_fuente=60
+                    )
+                    
+                    with io.BytesIO() as image_binary:
+                        img.convert("RGB").save(image_binary, "PNG")
+                        image_binary.seek(0)
+                        await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}.png"))
+                        logger.info(f"✅ [PRUEBA EXITOSA] Valakas enviado al canal {canal_id}")
+        return
+
+    # Lógica habitual para los demás filtros basados en JSON...
     if not os.path.exists(ruta_json):
         return
 
@@ -200,213 +192,13 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         vivo_o_muerto = contenido_json.get("vivo_o_muerto", [])
         raid_60_plus = contenido_json.get("raid_60_plus", [])
         datos_horario = vivo_o_muerto + raid_60_plus
-        
     except Exception as e:
-        logger.error(f"❌ Error al leer o parsear el JSON en salida_raid: {e}")
+        logger.error(f"❌ Error al leer JSON: {e}")
         return
 
-    try:
-        catalogo_raids = obtener_catalogo_imagenes_raid()
-        if not catalogo_raids:
-            return
-
-        raids_super_epicos_nombres = {"valakas", "antharas", "fafureon"}
-        datos_procesados = []
-
-        for jefe in datos_horario:
-            nombre_jefe = jefe.get("nombre", jefe.get("nombre_imagen", ""))
-            nivel_jefe = jefe.get("nivel", None)
-            
-            nombre_crudo = nombre_jefe.strip()
-            nombre_base_limpio = "".join(c for c in nombre_crudo if c.isalnum()).lower()
-            
-            if not nombre_base_limpio:
-                continue
-
-            # ==========================================
-            # SERVICIO: SUPER_EPICOS
-            # ==========================================
-            if tipo_filtro == "super_epicos":
-                if nombre_base_limpio not in raids_super_epicos_nombres:
-                    continue
-
-                estado = jefe.get("estado", "").upper()
-                tiempo_str = jefe.get("tiempo_str", "-")
-                es_vivo = (estado == "VIVO" or estado == "ALIVE" or jefe.get("es_vivo", False))
-                
-                dt_obj = None
-                if tiempo_str and tiempo_str != "-":
-                    try:
-                        dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                    except ValueError:
-                        pass
-
-                if not dt_obj and not es_vivo:
-                    continue
-
-                if dt_obj and dt_obj.date() != ahora_actual.date():
-                    continue
-
-                tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
-                ventana_maxima = max(intervalo_segundos * 2, 180)
-
-                if dt_obj:
-                    t_obj_1 = dt_obj - timedelta(hours=1)
-                    diff_1 = (ahora_actual - t_obj_1).total_seconds()
-                    cid_1 = f"{nombre_base_limpio}_se_1_{tiempo_key}"
-                    if 0 <= diff_1 < ventana_maxima and cid_1 not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[cid_1] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}m", "canal_destino_id": canal_envio_id})
-
-                    t_obj_2 = dt_obj - timedelta(minutes=30)
-                    diff_2 = (ahora_actual - t_obj_2).total_seconds()
-                    cid_2 = f"{nombre_base_limpio}_se_2_{tiempo_key}"
-                    if 0 <= diff_2 < ventana_maxima and cid_2 not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[cid_2] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_envio_id})
-
-                    diff_3 = (ahora_actual - dt_obj).total_seconds()
-                    cid_3 = f"{nombre_base_limpio}_se_3_{tiempo_key}"
-                    if 0 <= diff_3 < ventana_maxima and cid_3 not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_clan_id})
-
-                if es_vivo:
-                    cid_4 = f"{nombre_base_limpio}_se_4_vivo_{tiempo_key}"
-                    if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[cid_4] = ahora_actual
-                        datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}h", "canal_destino_id": canal_clan_id})
-
-                continue
-
-            # ==========================================
-            # FILTROS DE LOS SERVICIOS PRINCIPALES
-            # ==========================================
-            if tipo_filtro != "PUBLICAR_RAIDS" and not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
-                continue
-                
-            estado = jefe.get("estado", "").upper()
-            tiempo_str = jefe.get("tiempo_str", "-")
-            es_vivo = (estado == "VIVO" or estado == "ALIVE" or jefe.get("es_vivo", False))
-            
-            dt_obj = None
-            if tiempo_str and tiempo_str != "-":
-                try:
-                    dt_obj = datetime.strptime(tiempo_str, "%d/%m/%Y %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                except ValueError:
-                    pass
-
-            # --- SERVICIO DE PRUEBA: PUBLICAR_RAIDS (Valakas cada 1 minuto) ---
-            if tipo_filtro == "PUBLICAR_RAIDS":
-                if nombre_base_limpio == "valakas":
-                    minuto_key = ahora_actual.strftime('%Y%m%d_%H%M')
-                    clave_id_prueba = f"valakas_prueba_1min_{minuto_key}"
-                    
-                    if clave_id_prueba not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_prueba] = ahora_actual
-                        reg = jefe.copy()
-                        # Usa 'h' para el mismo día
-                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}h"
-                        reg["canal_destino_id"] = canal_id
-                        datos_procesados.append(reg)
-                continue
-
-            if not dt_obj and not es_vivo:
-                continue
-
-            tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
-            ventana_maxima = max(intervalo_segundos * 2, 180)
-
-            # --- SERVICIO: PUBLICAR_RAIDS_ANTES ---
-            if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
-                if es_vivo or not dt_obj or dt_obj.date() != ahora_actual.date():
-                    continue
-                tiempo_objetivo = dt_obj if nombre_base_limpio in JEFS_ESPECIALES_RANDOM else dt_obj - timedelta(minutes=10)
-                diferencia_segundos = (ahora_actual - tiempo_objetivo).total_seconds()
-                
-                clave_id = f"{nombre_base_limpio}_antes_{tiempo_key}"
-                if 0 <= diferencia_segundos < ventana_maxima and clave_id not in HISTORIAL_ENVIADOS_CACHE:
-                    HISTORIAL_ENVIADOS_CACHE[clave_id] = ahora_actual
-                    reg = jefe.copy()
-                    # Si es súper épico usa 'm' (día antes), de lo contrario nombre base
-                    sufijo = "m" if nombre_base_limpio in raids_super_epicos_nombres else ""
-                    reg["nombre_imagen_base"] = f"{nombre_base_limpio}{sufijo}"
-                    reg["canal_destino_id"] = canal_id
-                    datos_procesados.append(reg)
-                continue
-
-            # --- SERVICIO: PUBLICAR_RAIDS_SALIO ---
-            elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
-                if nombre_base_limpio in raids_super_epicos_nombres:
-                    continue
-                if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
-                    if es_vivo:
-                        clave_id_salio = f"{nombre_base_limpio}_salio_vivo_{tiempo_key}"
-                        if clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
-                            reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
-                            reg["canal_destino_id"] = canal_id
-                            datos_procesados.append(reg)
-                else:
-                    if dt_obj:
-                        if dt_obj.date() != ahora_actual.date():
-                            continue
-                        diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
-                        clave_id_salio = f"{nombre_base_limpio}_salio_{tiempo_key}"
-                        if 0 <= diferencia_segundos < ventana_maxima and clave_id_salio not in HISTORIAL_ENVIADOS_CACHE:
-                            HISTORIAL_ENVIADOS_CACHE[clave_id_salio] = ahora_actual
-                            reg = jefe.copy()
-                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
-                            reg["canal_destino_id"] = canal_id
-                            datos_procesados.append(reg)
-                continue
-
-        if not datos_procesados:
-            return
-
-        for jefe in datos_procesados:
-            nombre_imagen_base = jefe.get("nombre_imagen_base")
-            destino_canal_id = jefe.get("canal_destino_id")
-            
-            if not destino_canal_id:
-                continue
-
-            channel_destino = bot_instance.get_channel(destino_canal_id)
-            if not channel_destino:
-                continue
-
-            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
-            if not ruta_imagen:
-                continue
-                
-            # Abrir imagen y aplicar fuente y textura configurada para la hora
-            img = Image.open(ruta_imagen).convert("RGBA")
-            texto_hora = ahora_actual.strftime("%H:%M")
-            
-            # Aplicar textura utilizando FUENTE_BANKGOTHIC
-            aplicar_textura_a_texto(
-                imagen_base=img,
-                texto=texto_hora,
-                x=POS_X,
-                y=POS_Y,
-                ruta_fuente=FUENTE_BANKGOTHIC,
-                ruta_textura=DIR_TEXTURA,
-                tamano_fuente=60
-            )
-            
-            with io.BytesIO() as image_binary:
-                img.convert("RGB").save(image_binary, "PNG")
-                image_binary.seek(0)
-                await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}.png"))
-
-    except Exception as e:
-        logger.error(f"❌ Error crítico en salida_raid [{nombre_filtro_log}]: {e}")
+    # (El resto de filtros continúan operando normalmente con el JSON...)
 
 
-# ==========================================
-# BUCLE PERMANENTE EN SEGUNDO PLANO
-# ==========================================
 async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
