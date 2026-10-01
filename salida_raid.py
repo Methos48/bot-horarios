@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 import discord
 import config
 
-logger = للن = logging.getLogger("SalidaRaid") # Manteniendo compatibilidad
+logger = logging.getLogger("SalidaRaid")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
@@ -30,7 +30,7 @@ FUENTE_BIOME = getattr(config, "FUENTE_BIOME", "arial.ttf")
 DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 
 # ==========================================
-# POSICIÓN MANUAL DE LA HORA (Coordenadas X e Y)
+# POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
 POS_X = 20
 POS_Y = 565
@@ -131,30 +131,28 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
     ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-    # Canal de pruebas asignado explícitamente para PUBLICAR_RAIDS
     canal_id = 1549577944999927999 if tipo_filtro == "PUBLICAR_RAIDS" else getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     
     if not canal_id:
         return
 
     # ==========================================
-    # MODO PRUEBA DIRECTO: PUBLICAR_RAIDS (Valakas cada minuto)
+    # MODO CALIBRACIÓN / PRUEBA: VALAKASH CON HORA FIJA 22:30
     # ==========================================
     if tipo_filtro == "PUBLICAR_RAIDS":
-        minuto_key = ahora_actual.strftime('%Y%m%d_%H%M')
-        clave_id_prueba = f"valakas_prueba_1min_{minuto_key}"
+        # Usamos una clave fija o única de inicio para asegurar que se mande apenas arranque
+        clave_id_calibracion = "valakash_calibracion_2230_inicios"
         
-        if clave_id_prueba not in HISTORIAL_ENVIADOS_CACHE:
-            HISTORIAL_ENVIADOS_CACHE[clave_id_prueba] = ahora_actual
+        if clave_id_calibracion not in HISTORIAL_ENVIADOS_CACHE:
+            HISTORIAL_ENVIADOS_CACHE[clave_id_calibracion] = ahora_actual
             
             catalogo_raids = obtener_catalogo_imagenes_raid()
-            # Valakas usa terminación 'h' para el mismo día
-            nombre_imagen_base = "valakash"
+            nombre_imagen_base = "valakash"  # Buscará directamente 'valakash.png' en tus carpetas
             
             ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
             
             if not ruta_imagen:
-                # Intento de respaldo buscando directo por nombre base si falla la estructura
+                # Respaldo por si no encuentra la terminación 'h' exacta
                 ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
                 nombre_imagen_base = "valakas"
 
@@ -162,7 +160,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 channel_destino = bot_instance.get_channel(canal_id)
                 if channel_destino:
                     img = Image.open(ruta_imagen).convert("RGBA")
-                    texto_hora = ahora_actual.strftime("%H:%M")
+                    texto_hora = "22:30"  # Hora fija solicitada para calibrar
                     
                     aplicar_textura_a_texto(
                         imagen_base=img,
@@ -177,11 +175,15 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     with io.BytesIO() as image_binary:
                         img.convert("RGB").save(image_binary, "PNG")
                         image_binary.seek(0)
-                        await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}.png"))
-                        logger.info(f"✅ [PRUEBA EXITOSA] Valakas enviado al canal {canal_id}")
+                        await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png"))
+                        logger.info(f"🎯 [CALIBRACIÓN] Valakash enviado con éxito a las 22:30 al canal {canal_id}")
+                else:
+                    logger.error(f"❌ No se pudo encontrar el canal de destino con ID {canal_id}")
+            else:
+                logger.error(f"❌ No se encontró ninguna imagen para valakash en el catálogo de raids.")
         return
 
-    # Lógica habitual para los demás filtros basados en JSON...
+    # Lógica de los demás servicios basada en JSON...
     if not os.path.exists(ruta_json):
         return
 
@@ -196,8 +198,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         logger.error(f"❌ Error al leer JSON: {e}")
         return
 
-    # (El resto de filtros continúan operando normalmente con el JSON...)
-
 
 async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
@@ -211,9 +211,10 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
 
             fecha_hoy = ahora_actual.date()
             if ULTIMO_RESET_CACHE_DIA is None or fecha_hoy > ULTIMO_RESET_CACHE_DIA:
-                HISTORIAL_ENVIADOS_CACHE.clear()
+                # Opcional: si quieres que se mande cada vez que reinicies el bot para probar, 
+                # puedes comentar la línea de abajo o dejarla para que limpie solo al cambiar de día.
+                # HISTORIAL_ENVIADOS_CACHE.clear() 
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
-                logger.info("🧹 Caché de raids limpiada automáticamente por cambio de día.")
 
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
