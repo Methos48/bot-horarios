@@ -116,6 +116,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     if tipo_filtro in ["PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos", "antes", "salio"]:
         subcarpetas_a_probar = ["raid/antes/", ""]
     else:
+        # Busca estrictamente en la estructura basada en TEMA_ACTIVO (ej: rojo/raid/, rojo/)
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
 
     for sub in subcarpetas_a_probar:
@@ -216,7 +217,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
                 ventana_maxima = max(intervalo_segundos * 2, 90)
 
-                # Regla 1: 1 hora antes
                 if dt_obj:
                     t_obj_1 = dt_obj - timedelta(hours=1)
                     diff_1 = (ahora_actual - t_obj_1).total_seconds()
@@ -225,7 +225,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         HISTORIAL_ENVIADOS_CACHE[cid_1] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}1", "canal_destino_id": canal_envio_id})
 
-                    # Regla 2: 30 minutos antes
                     t_obj_2 = dt_obj - timedelta(minutes=30)
                     diff_2 = (ahora_actual - t_obj_2).total_seconds()
                     cid_2 = f"{nombre_base_limpio}_se_2_{tiempo_key}"
@@ -233,14 +232,12 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         HISTORIAL_ENVIADOS_CACHE[cid_2] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}2", "canal_destino_id": canal_envio_id})
 
-                    # Regla 3: Hora exacta
                     diff_3 = (ahora_actual - dt_obj).total_seconds()
                     cid_3 = f"{nombre_base_limpio}_se_3_{tiempo_key}"
                     if 0 <= diff_3 < ventana_maxima and cid_3 not in HISTORIAL_ENVIADOS_CACHE:
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
 
-                # Regla 4: Cambio a VIVO
                 if es_vivo:
                     cid_4 = f"{nombre_base_limpio}_se_4_vivo_{tiempo_key}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
@@ -315,21 +312,74 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                             datos_procesados.append(reg)
                 continue
 
-            # --- SERVICIO: PUBLICAR_RAIDS (Principal / Hora exacta) ---
+            # --- SERVICIO: PUBLICAR_RAIDS (Principal adaptado a tus reglas específicas) ---
             else:
-                if dt_obj:
-                    if dt_obj.date() != ahora_actual.date():
-                        continue
-                    diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
-                    clave_id_principal = f"{nombre_base_limpio}_principal_{tiempo_key}"
+                if not dt_obj:
+                    continue
+
+                # REGLA: Solo publica los raids del día en el que estamos
+                if dt_obj.date() != ahora_actual.date():
+                    continue
+
+                tiempo_objetivo = None
+
+                # 1. Valakas, Antharas, Fafureon: publicados a las 10:00 AM tanto el día antes como el día que salen
+                if nombre_base_limpio in raids_super_epicos_nombres:
+                    # Si el raid sale en una fecha concreta, su "día antes" se calcula restando 1 día, y se fija a las 10:00 AM.
+                    # O bien, si es el día de salida exacto, se programa a las 10:00 AM (restando 30 min según indicaste para el aviso exacto).
+                    # Definimos el objetivo base a las 10:00 AM del día del raid o del día anterior:
+                    pass  # Manejado abajo mediante la evaluación de la hora objetivo a las 10:00 AM
+
+                # Vamos a calcular el `tiempo_objetivo` exacto según el tipo de jefe:
+                if nombre_base_limpio in raids_super_epicos_nombres:
+                    # Queremos que se publique a las 10:00 AM. Verificamos si estamos evaluando el día de salida o el día anterior.
+                    # Creamos las dos marcas de tiempo de las 10:00 AM:
+                    # - Día de salida a las 10:00 AM menos 30 min (es decir, 09:30 AM o exacto a las 10:00 AM restando 30m)
+                    # - Día anterior a las 10:00 AM
+                    hora_10_salida = dt_obj.replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(minutes=30)
+                    hora_10_dia_antes = (dt_obj - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
                     
-                    if 0 <= diferencia_segundos < ventana_maxima and clave_id_principal not in HISTORIAL_ENVIADOS_CACHE:
-                        HISTORIAL_ENVIADOS_CACHE[clave_id_principal] = ahora_actual
+                    # Comparamos contra la hora actual para ver si encaja en alguna de las dos ventanas
+                    for t_obj in [hora_10_salida, hora_10_dia_antes]:
+                        diff = (ahora_actual - t_obj).total_seconds()
+                        clave_id_se = f"{nombre_base_limpio}_principal_se_{t_obj.strftime('%Y%m%d_%H%M')}"
+                        if 0 <= diff < ventana_maxima and clave_id_se not in HISTORIAL_ENVIADOS_CACHE:
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_se] = ahora_actual
+                            reg = jefe.copy()
+                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
+                            reg["canal_destino_id"] = canal_id
+                            datos_procesados.append(reg)
+                            break
+                    continue
+
+                elif nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
+                    # Deben ser publicados a las 2:00 PM (14:00 horas) hora argentina del día que salen
+                    hora_14_salida = dt_obj.replace(hour=14, minute=0, second=0, microsecond=0)
+                    diff = (ahora_actual - hora_14_salida).total_seconds()
+                    clave_id_rand = f"{nombre_base_limpio}_principal_rand_{tiempo_key}"
+                    
+                    if 0 <= diff < ventana_maxima and clave_id_rand not in HISTORIAL_ENVIADOS_CACHE:
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_rand] = ahora_actual
                         reg = jefe.copy()
                         reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
                         reg["canal_destino_id"] = canal_id
                         datos_procesados.append(reg)
-                continue
+                    continue
+
+                else:
+                    # Demás raids normales del día (si salen entre las 18 y las 23 horas, o a su hora exacta programada)
+                    # Opcionalmente validamos el rango de 18 a 23 si es tu criterio, o la hora exacta de su respawn:
+                    if 18 <= dt_obj.hour <= 23:
+                        diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
+                        clave_id_normal = f"{nombre_base_limpio}_principal_{tiempo_key}"
+                        
+                        if 0 <= diferencia_segundos < ventana_maxima and clave_id_normal not in HISTORIAL_ENVIADOS_CACHE:
+                            HISTORIAL_ENVIADOS_CACHE[clave_id_normal] = ahora_actual
+                            reg = jefe.copy()
+                            reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
+                            reg["canal_destino_id"] = canal_id
+                            datos_procesados.append(reg)
+                    continue
 
         if not datos_procesados:
             return
@@ -380,7 +430,6 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
                 logger.info("🧹 Caché de raids limpiada automáticamente por cambio de día.")
 
-            # Ciclo que ejecuta los 3 servicios principales + super_epicos
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
                 
