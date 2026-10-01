@@ -112,8 +112,8 @@ def obtener_catalogo_imagenes_raid():
     return catalogo
 
 
-def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="principal"):
-    if tipo_filtro in ["antes", "salio", "super_epicos"]:
+def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS"):
+    if tipo_filtro in ["PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos", "antes", "salio"]:
         subcarpetas_a_probar = ["raid/antes/", ""]
     else:
         subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
@@ -135,22 +135,22 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
     ahora_actual = datetime.now(ZONA_ARGENTINA)
 
-    if tipo_filtro == "antes":
+    if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_ANTES
-        nombre_filtro_log = "antes"
+        nombre_filtro_log = "PUBLICAR_RAIDS_ANTES"
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    elif tipo_filtro == "salio":
+    elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
         filtro_activo = FILTRO_PUBLICAR_RAIDS_SALIO
-        nombre_filtro_log = "salio"
+        nombre_filtro_log = "PUBLICAR_RAIDS_SALIO"
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     elif tipo_filtro == "super_epicos":
         filtro_activo = FILTRO_PUBLICAR_RAIDS
         nombre_filtro_log = "super_epicos"
         canal_envio_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
         canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
-    else:
+    else:  # PUBLICAR_RAIDS (Servicio principal)
         filtro_activo = FILTRO_PUBLICAR_RAIDS
-        nombre_filtro_log = "principal"
+        nombre_filtro_log = "PUBLICAR_RAIDS"
         canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
     
     if tipo_filtro != "super_epicos" and not canal_id:
@@ -190,7 +190,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 continue
 
             # ==========================================
-            # SERVICIO: PUBLICAR_RAIDS_SUPER_EPICOS
+            # SERVICIO: SUPER_EPICOS
             # ==========================================
             if tipo_filtro == "super_epicos":
                 if nombre_base_limpio not in raids_super_epicos_nombres:
@@ -240,7 +240,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                         HISTORIAL_ENVIADOS_CACHE[cid_3] = ahora_actual
                         datos_procesados.append({**jefe, "nombre_imagen_base": f"{nombre_base_limpio}3", "canal_destino_id": canal_clan_id})
 
-                # Regla 4: Cambio a VIVO (Basado en el tiempo exacto o clave de respawn activa)
+                # Regla 4: Cambio a VIVO
                 if es_vivo:
                     cid_4 = f"{nombre_base_limpio}_se_4_vivo_{tiempo_key}"
                     if cid_4 not in HISTORIAL_ENVIADOS_CACHE:
@@ -250,7 +250,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 continue
 
             # ==========================================
-            # FILTROS ORIGINALES (antes, salio)
+            # FILTROS DE LOS 3 SERVICIOS PRINCIPALES
             # ==========================================
             if not debe_publicar_raid(nombre_jefe, nivel_jefe, filtro_usado=filtro_activo):
                 continue
@@ -272,7 +272,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             tiempo_key = dt_obj.strftime('%Y%m%d_%H%M') if dt_obj else f"vivo_{ahora_actual.strftime('%Y%m%d')}"
             ventana_maxima = max(intervalo_segundos * 2, 90)
 
-            if tipo_filtro == "antes":
+            # --- SERVICIO: PUBLICAR_RAIDS_ANTES ---
+            if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
                 if es_vivo or not dt_obj or dt_obj.date() != ahora_actual.date():
                     continue
                 tiempo_objetivo = dt_obj if nombre_base_limpio in JEFS_ESPECIALES_RANDOM else dt_obj - timedelta(minutes=10)
@@ -287,7 +288,8 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                     datos_procesados.append(reg)
                 continue
 
-            elif tipo_filtro == "salio":
+            # --- SERVICIO: PUBLICAR_RAIDS_SALIO ---
+            elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
                 if nombre_base_limpio in raids_super_epicos_nombres:
                     continue
                 if nombre_base_limpio in JEFS_ESPECIALES_RANDOM:
@@ -311,6 +313,22 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                             reg["nombre_imagen_base"] = f"{nombre_base_limpio}2"
                             reg["canal_destino_id"] = canal_id
                             datos_procesados.append(reg)
+                continue
+
+            # --- SERVICIO: PUBLICAR_RAIDS (Principal / Hora exacta) ---
+            else:
+                if dt_obj:
+                    if dt_obj.date() != ahora_actual.date():
+                        continue
+                    diferencia_segundos = (ahora_actual - dt_obj).total_seconds()
+                    clave_id_principal = f"{nombre_base_limpio}_principal_{tiempo_key}"
+                    
+                    if 0 <= diferencia_segundos < ventana_maxima and clave_id_principal not in HISTORIAL_ENVIADOS_CACHE:
+                        HISTORIAL_ENVIADOS_CACHE[clave_id_principal] = ahora_actual
+                        reg = jefe.copy()
+                        reg["nombre_imagen_base"] = f"{nombre_base_limpio}"
+                        reg["canal_destino_id"] = canal_id
+                        datos_procesados.append(reg)
                 continue
 
         if not datos_procesados:
@@ -362,7 +380,8 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
                 logger.info("🧹 Caché de raids limpiada automáticamente por cambio de día.")
 
-            for tipo in ["principal", "antes", "salio", "super_epicos"]:
+            # Ciclo que ejecuta los 3 servicios principales + super_epicos
+            for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
                 
         except Exception as e:
