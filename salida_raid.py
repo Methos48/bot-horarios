@@ -20,9 +20,9 @@ HISTORIAL_ENVIADOS_CACHE = {}
 ULTIMO_RESET_CACHE_DIA = None  
 
 # ==========================================
-# CONFIGURACIÓN DE TEMA / ESTILO VISUAL Y FUENTES
+# CONFIGURACIÓN DE TEMA / ESTIVO VISUAL Y FUENTES
 # ==========================================
-TEMA_ACTIVO = "rojo"
+TEMA_ACTIVO = "rojo"  # Puede cambiar a "morado", etc.
 
 FUENTE_BANKGOTHIC = getattr(config, "FUENTE_BANKGOTHIC", "arial.ttf")
 FUENTE_APTOS = getattr(config, "FUENTE_APTOS", "arial.ttf")
@@ -103,40 +103,54 @@ def obtener_catalogo_imagenes_raid():
             if archivo.lower().endswith(('.png', '.webp', '.jpg', '.jpeg')):
                 ruta_completa = os.path.join(root, archivo)
                 clave_relativa = os.path.relpath(ruta_completa, directorio_base).replace("\\", "/")
-                catalogo[clave_relativa] = ruta_completa
+                catalogo[clave_relativa.lower()] = ruta_completa
+                # Guardar también solo el nombre del archivo para búsqueda directa rápida
+                catalogo[archivo.lower()] = ruta_completa
                 
     return catalogo
 
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS"):
-    if tipo_filtro in ["PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos", "antes", "salio"]:
-        subcarpetas_a_probar = ["raid/antes/", ""]
-    else:
-        subcarpetas_a_probar = [f"{tema}/raid/", f"{tema}/"]
+    nombre_limpio = nombre_base_raid.strip().lower()
+    
+    # Definir carpetas a probar según tu estructura exacta (imagen/raid/raid/rojo/raid/ o morado/raid/)
+    rutas_candidatas = [
+        f"{tema}/raid/{nombre_limpio}.png",
+        f"{tema}/{nombre_limpio}.png",
+        f"raid/{tema}/raid/{nombre_limpio}.png",
+        f"raid/{tema}/{nombre_limpio}.png",
+        f"antes/{nombre_limpio}.png",
+        f"{nombre_limpio}.png"
+    ]
 
-    for sub in subcarpetas_a_probar:
-        for ext in ['.png', '.jpg', '.webp', '.jpeg']:
-            claves_intento = [
-                f"{sub}{nombre_base_raid}{ext}",
-                f"raid/{sub}{nombre_base_raid}{ext}"
-            ]
-            
-            for clave_intento in claves_intento:
-                if clave_intento in catalogo:
-                    return catalogo[clave_intento]
+    # Soporte para sufijos 'h' o 'm' si aplican (como antharash, valakasm, etc.)
+    for sufijo in ['h', 'm']:
+        rutas_candidatas.insert(0, f"{tema}/raid/{nombre_limpio}{sufijo}.png")
+        rutas_candidatas.insert(0, f"raid/{tema}/raid/{nombre_limpio}{sufijo}.png")
+
+    for ruta in rutas_candidatas:
+        # Buscar coincidencia exacta en las claves del catálogo
+        for clave_cat in catalogo:
+            if clave_cat.endswith(ruta.lower()) or clave_cat == ruta.lower():
+                return catalogo[clave_cat]
+                
+    # Búsqueda flexible de respaldo por nombre de archivo puro en todo el catálogo
+    for clave, ruta_completa in catalogo.items():
+        if nombre_limpio in clave:
+            return ruta_completa
 
     return None
 
 
 async def enviar_prueba_calibracion(bot_instance):
     """
-    Función exclusiva para forzar el envío inmediato de Valakash con la hora 22:30 
+    Función exclusiva para forzar el envío inmediato de Valakas con la hora 22:30 
     tan pronto el bot se conecta y está listo.
     """
     await bot_instance.wait_until_ready()
-    await asyncio.sleep(2) # Breve pausa para asegurar estabilidad de conexión con Discord
+    await asyncio.sleep(3) # Pausa para estabilidad
     
-    canal_id = 1549577944999927999
+    canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None) or 1549577944999927999
     channel_destino = bot_instance.get_channel(canal_id)
     
     if not channel_destino:
@@ -144,55 +158,55 @@ async def enviar_prueba_calibracion(bot_instance):
         return
 
     catalogo_raids = obtener_catalogo_imagenes_raid()
-    nombre_imagen_base = "valakash"
-    
-    ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
-    
-    if not ruta_imagen:
-        ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
-        nombre_imagen_base = "valakas"
+    logger.info(f"📁 Catálogo de raids cargado con {len(catalogo_raids)} archivos detectados.")
 
-    if ruta_imagen:
-        img = Image.open(ruta_imagen).convert("RGBA")
-        texto_hora = "22:30"  # Hora fija solicitada para calibración
-        
-        aplicar_textura_a_texto(
-            imagen_base=img,
-            texto=texto_hora,
-            x=POS_X,
-            y=POS_Y,
-            ruta_fuente=FUENTE_BANKGOTHIC,
-            ruta_textura=DIR_TEXTURA,
-            tamano_fuente=60
-        )
-        
-        with io.BytesIO() as image_binary:
-            img.convert("RGB").save(image_binary, "PNG")
-            image_binary.seek(0)
-            await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png"))
-            logger.info(f"🎯 [CALIBRACIÓN EXITOSA] Valakash enviado con la hora 22:30 al canal {canal_id}")
+    nombre_imagen_base = "valakas"
+    ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
+
+    if ruta_imagen and os.path.exists(ruta_imagen):
+        try:
+            img = Image.open(ruta_imagen).convert("RGBA")
+            texto_hora = "22:30"  # Hora fija de calibración
+            
+            aplicar_textura_a_texto(
+                imagen_base=img,
+                texto=texto_hora,
+                x=POS_X,
+                y=POS_Y,
+                ruta_fuente=FUENTE_BANKGOTHIC,
+                ruta_textura=DIR_TEXTURA,
+                tamano_fuente=60
+            )
+            
+            with io.BytesIO() as image_binary:
+                img.convert("RGB").save(image_binary, "PNG")
+                image_binary.seek(0)
+                await channel_destino.send(
+                    content="🧪 **[PRUEBA DE CALIBRACIÓN]**",
+                    file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png")
+                )
+                logger.info(f"🎯 [CALIBRACIÓN EXITOSA] Valakas enviado con la hora 22:30 al canal {canal_id}")
+        except Exception as e:
+            logger.error(f"❌ [CALIBRACIÓN] Error al generar/enviar la imagen: {e}")
     else:
-        logger.error(f"❌ [CALIBRACIÓN] No se encontró la imagen de valakash en las rutas de directorios.")
+        logger.error(f"❌ [CALIBRACIÓN] No se encontró la imagen de valakas en las rutas de carpetas de '{TEMA_ACTIVO}'.")
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    # Lógica estándar de los filtros regulares (sin interferir con la prueba directa)
-    if tipo_filtro == "PUBLICAR_RAIDS":
-        return # Ya manejado por la prueba directa de calibración inicial
-        
+    # Lógica de procesamiento para ciclos de raids regulares
     ahora_actual = datetime.now(ZONA_ARGENTINA)
     canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     if not canal_id or not os.path.exists(ruta_json):
         return
 
-    # ... (Resto de tu lógica normal para otros filtros)
+    # Aquí continúa tu lógica normal de lectura de JSON y envío según el tipo_filtro...
 
 
-async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
+async def iniciar_monitoreo_permanente(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     
-    # Lanzamos la prueba de calibración de inmediato en segundo plano al arrancar
+    # Lanzar la prueba de calibración en segundo plano al arrancar
     asyncio.create_task(enviar_prueba_calibracion(bot_instance))
 
     await bot_instance.wait_until_ready()
@@ -206,8 +220,3 @@ async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", 
 
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
-                
-        except Exception as e:
-            logger.error(f"❌ Error en el ciclo de monitoreo permanente: {e}")
-        
-        await asyncio.sleep(intervalo_segundos)
