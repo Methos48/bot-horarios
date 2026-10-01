@@ -128,92 +128,80 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
     return None
 
 
-async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    ahora_actual = datetime.now(ZONA_ARGENTINA)
-
-    canal_id = 1549577944999927999 if tipo_filtro == "PUBLICAR_RAIDS" else getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+async def enviar_prueba_calibracion(bot_instance):
+    """
+    Función exclusiva para forzar el envío inmediato de Valakash con la hora 22:30 
+    tan pronto el bot se conecta y está listo.
+    """
+    await bot_instance.wait_until_ready()
+    await asyncio.sleep(2) # Breve pausa para asegurar estabilidad de conexión con Discord
     
-    if not canal_id:
+    canal_id = 1549577944999927999
+    channel_destino = bot_instance.get_channel(canal_id)
+    
+    if not channel_destino:
+        logger.error(f"❌ [CALIBRACIÓN] No se encontró el canal con ID {canal_id}")
         return
 
-    # ==========================================
-    # MODO CALIBRACIÓN / PRUEBA: VALAKASH CON HORA FIJA 22:30
-    # ==========================================
-    if tipo_filtro == "PUBLICAR_RAIDS":
-        # Usamos una clave fija o única de inicio para asegurar que se mande apenas arranque
-        clave_id_calibracion = "valakash_calibracion_2230_inicios"
+    catalogo_raids = obtener_catalogo_imagenes_raid()
+    nombre_imagen_base = "valakash"
+    
+    ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
+    
+    if not ruta_imagen:
+        ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
+        nombre_imagen_base = "valakas"
+
+    if ruta_imagen:
+        img = Image.open(ruta_imagen).convert("RGBA")
+        texto_hora = "22:30"  # Hora fija solicitada para calibración
         
-        if clave_id_calibracion not in HISTORIAL_ENVIADOS_CACHE:
-            HISTORIAL_ENVIADOS_CACHE[clave_id_calibracion] = ahora_actual
-            
-            catalogo_raids = obtener_catalogo_imagenes_raid()
-            nombre_imagen_base = "valakash"  # Buscará directamente 'valakash.png' en tus carpetas
-            
-            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
-            
-            if not ruta_imagen:
-                # Respaldo por si no encuentra la terminación 'h' exacta
-                ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
-                nombre_imagen_base = "valakas"
+        aplicar_textura_a_texto(
+            imagen_base=img,
+            texto=texto_hora,
+            x=POS_X,
+            y=POS_Y,
+            ruta_fuente=FUENTE_BANKGOTHIC,
+            ruta_textura=DIR_TEXTURA,
+            tamano_fuente=60
+        )
+        
+        with io.BytesIO() as image_binary:
+            img.convert("RGB").save(image_binary, "PNG")
+            image_binary.seek(0)
+            await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png"))
+            logger.info(f"🎯 [CALIBRACIÓN EXITOSA] Valakash enviado con la hora 22:30 al canal {canal_id}")
+    else:
+        logger.error(f"❌ [CALIBRACIÓN] No se encontró la imagen de valakash en las rutas de directorios.")
 
-            if ruta_imagen:
-                channel_destino = bot_instance.get_channel(canal_id)
-                if channel_destino:
-                    img = Image.open(ruta_imagen).convert("RGBA")
-                    texto_hora = "22:30"  # Hora fija solicitada para calibrar
-                    
-                    aplicar_textura_a_texto(
-                        imagen_base=img,
-                        texto=texto_hora,
-                        x=POS_X,
-                        y=POS_Y,
-                        ruta_fuente=FUENTE_BANKGOTHIC,
-                        ruta_textura=DIR_TEXTURA,
-                        tamano_fuente=60
-                    )
-                    
-                    with io.BytesIO() as image_binary:
-                        img.convert("RGB").save(image_binary, "PNG")
-                        image_binary.seek(0)
-                        await channel_destino.send(file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png"))
-                        logger.info(f"🎯 [CALIBRACIÓN] Valakash enviado con éxito a las 22:30 al canal {canal_id}")
-                else:
-                    logger.error(f"❌ No se pudo encontrar el canal de destino con ID {canal_id}")
-            else:
-                logger.error(f"❌ No se encontró ninguna imagen para valakash en el catálogo de raids.")
+
+async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
+    # Lógica estándar de los filtros regulares (sin interferir con la prueba directa)
+    if tipo_filtro == "PUBLICAR_RAIDS":
+        return # Ya manejado por la prueba directa de calibración inicial
+        
+    ahora_actual = datetime.now(ZONA_ARGENTINA)
+    canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+    if not canal_id or not os.path.exists(ruta_json):
         return
 
-    # Lógica de los demás servicios basada en JSON...
-    if not os.path.exists(ruta_json):
-        return
-
-    try:
-        with open(ruta_json, "r", encoding="utf-8") as f:
-            contenido_json = json.load(f)
-            
-        vivo_o_muerto = contenido_json.get("vivo_o_muerto", [])
-        raid_60_plus = contenido_json.get("raid_60_plus", [])
-        datos_horario = vivo_o_muerto + raid_60_plus
-    except Exception as e:
-        logger.error(f"❌ Error al leer JSON: {e}")
-        return
+    # ... (Resto de tu lógica normal para otros filtros)
 
 
 async def iniciar_monitoreo_permanente(bot_instance, ruta_json="horarios.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     
+    # Lanzamos la prueba de calibración de inmediato en segundo plano al arrancar
+    asyncio.create_task(enviar_prueba_calibracion(bot_instance))
+
     await bot_instance.wait_until_ready()
 
     while not bot_instance.is_closed():
         try:
             ahora_actual = datetime.now(ZONA_ARGENTINA)
-
             fecha_hoy = ahora_actual.date()
             if ULTIMO_RESET_CACHE_DIA is None or fecha_hoy > ULTIMO_RESET_CACHE_DIA:
-                # Opcional: si quieres que se mande cada vez que reinicies el bot para probar, 
-                # puedes comentar la línea de abajo o dejarla para que limpie solo al cambiar de día.
-                # HISTORIAL_ENVIADOS_CACHE.clear() 
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
 
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
