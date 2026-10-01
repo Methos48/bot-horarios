@@ -407,7 +407,6 @@ async def on_ready():
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
         
-    # Corrección de la llamada usando el nombre exacto de la función en salida_raid
     bot.loop.create_task(salida_raid.iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
 
 @tasks.loop(seconds=60)
@@ -476,7 +475,7 @@ async def on_message(message):
             nuevos_registros = []
 
             if message.attachments:
-                logger.info("🖼️️ Procesando imagen con entrada_imagen...")
+                logger.info("🖼 Procesando imagen con entrada_imagen...")
                 nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
                 logger.info("📥 Procesando texto con entrada_texto...")
@@ -526,3 +525,21 @@ async def on_message(message):
             logger.error(f"Error procesando entrada manual: {e}")
 
     await bot.process_commands(message)
+
+# ==============================================================================
+# 🚀 INICIO DE LA APLICACIÓN
+# ==============================================================================
+if __name__ == "__main__":
+    # 1. Iniciamos Flask para mantener el servicio activo en servicios cloud (Render, etc.)
+    keep_alive()
+
+    # 2. Obtenemos el token y arrancamos el bot de Discord de manera bloqueante
+    TOKEN = getattr(config, "DISCORD_TOKEN", None)
+    if not TOKEN:
+        logger.error("❌ No se encontró el DISCORD_TOKEN en el archivo config.py")
+    else:
+        try:
+            logger.info("🤖 Iniciando conexión con Discord...")
+            bot.run(TOKEN)
+        except Exception as e:
+            logger.error(f"❌ Error crítico al ejecutar el bot: {e}")
