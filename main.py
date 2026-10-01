@@ -393,22 +393,6 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
 
-# ==============================================================================
-# 🚀 BUCLE PERMANENTE: SALIDA RAID AUTOMÁTICA
-# ==============================================================================
-async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
-    logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
-    await bot_instance.wait_until_ready()
-
-    while not bot_instance.is_closed():
-        try:
-            for tipo in ["principal", "antes", "salio"]:
-                await salida_raid.procesar_ciclo_raids(bot_instance, ruta_json, tipo)
-        except Exception as e:
-            logger.error(f"❌ Error en el ciclo de monitoreo permanente de raids: {e}")
-        
-        await asyncio.sleep(intervalo_segundos)
-
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
@@ -423,7 +407,8 @@ async def on_ready():
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
         
-    bot.loop.create_task(iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
+    # Corrección de la llamada usando el nombre exacto de la función en salida_raid
+    bot.loop.create_task(salida_raid.iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
 
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
@@ -491,7 +476,7 @@ async def on_message(message):
             nuevos_registros = []
 
             if message.attachments:
-                logger.info("🖼️ Procesando imagen con entrada_imagen...")
+                logger.info("🖼️️ Procesando imagen con entrada_imagen...")
                 nuevos_registros = await entrada_imagen.procesar_mensaje_imagenes(message)
             elif message.content:
                 logger.info("📥 Procesando texto con entrada_texto...")
