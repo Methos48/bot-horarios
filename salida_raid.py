@@ -74,7 +74,7 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 }
 
 # ==========================================
-# MAPEO Y FUNCIÓN DE ESTAMPADO CON IMÁGENES
+# MAPEO Y FUNCIÓN DE ESTAMPADO CON IMÁGENES REDIMENSIONADAS
 # ==========================================
 MAPEO_NUMEROS = {
     '0': NUMERO_0,
@@ -90,10 +90,10 @@ MAPEO_NUMEROS = {
     ':': NUMERO_DOS_PUNTOS
 }
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, espacio_entre_digitos=2):
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=35, espacio_entre_digitos=2):
     """
-    Recorre cada carácter de 'texto_hora' y pega su respectiva imagen 
-    desde la carpeta de números sobre la imagen_base del raid.
+    Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
+    la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
     """
     cursor_x = x_inicial
     
@@ -104,12 +104,18 @@ def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, es
             try:
                 img_digito = Image.open(ruta_img_num).convert("RGBA")
                 
-                if img_digito.mode == 'RGBA':
-                    imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
-                else:
-                    imagen_base.paste(img_digito, (cursor_x, y_inicial))
+                # Calcular el ancho proporcional basado en la altura deseada
+                w_original, h_original = img_digito.size
+                nuevo_ancho = int(w_original * (altura_deseada / h_original))
                 
-                cursor_x += img_digito.width + espacio_entre_digitos
+                # Redimensionar la imagen del dígito/símbolo suavemente
+                img_digito = img_digito.resize((nuevo_ancho, altura_deseada), Image.Resampling.LANCZOS)
+                
+                # Pegar el dígito usando su canal alfa
+                imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
+                
+                # Avanzar el cursor horizontalmente
+                cursor_x += nuevo_ancho + espacio_entre_digitos
                 
             except Exception as e:
                 logger.error(f"❌ Error al estampar el dígito '{caracter}': {e}")
@@ -195,6 +201,7 @@ async def enviar_prueba_calibracion(bot_instance):
                 texto_hora=texto_hora,
                 x_inicial=POS_X,
                 y_inicial=POS_Y,
+                altura_deseada=35,  # Puedes modificar este valor si quieres los números más chicos o grandes
                 espacio_entre_digitos=2
             )
             
