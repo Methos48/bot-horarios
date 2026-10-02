@@ -214,10 +214,10 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 tipo_ventana = "mismo_dia_18h"
                                 sufijo_imagen = "h"
                         else:
-                            # Raids Normales (entre 16:00 y 23:00): se publican el mismo día a las 14:00 (margen de 3 min)
+                            # Raids Normales (entre 16:00 y 23:00): se publican el mismo día a las 14:00 (margen de 5 min)
                             if 16 <= dt_raid.hour <= 23:
                                 dt_publicacion = dt_raid.replace(hour=14, minute=0, second=0, microsecond=0)
-                                if dt_publicacion <= ahora_arg < dt_publicacion + timedelta(minutes=3):
+                                if dt_publicacion <= ahora_arg < dt_publicacion + timedelta(minutes=5):
                                     tipo_ventana = "normal_1400"
                                     sufijo_imagen = hora_raid_str.replace(':', '')
 
