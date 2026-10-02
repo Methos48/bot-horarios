@@ -121,9 +121,9 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tipo_servicio):
     rutas_candidatas = []
     
     if tipo_servicio == "PUBLICAR_RAIDS_ANTES":
-        rutas_candidatas = [f"antes/{nombre_limpio}.png", f"{TEMA_ACTIVO}/antes/{nombre_limpio}.png"]
+        rutas_candidatas = [f"raid/antes/{nombre_limpio}.png", f"antes/{nombre_limpio}.png", f"{TEMA_ACTIVO}/raid/antes/{nombre_limpio}.png"]
     elif tipo_servicio == "PUBLICAR_RAIDS_SALIO":
-        rutas_candidatas = [f"salio/{nombre_limpio}.png", f"{TEMA_ACTIVO}/salio/{nombre_limpio}.png"]
+        rutas_candidatas = [f"raid/antes/{nombre_limpio}.png", f"salio/{nombre_limpio}.png", f"{TEMA_ACTIVO}/salio/{nombre_limpio}.png"]
 
     rutas_candidatas.extend([
         f"{TEMA_ACTIVO}/raid/{nombre_limpio}.png", f"{TEMA_ACTIVO}/{nombre_limpio}.png",
@@ -373,6 +373,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                     break
 
                                 nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
                                 ruta_personalizada = f"imagen/raid/raid/antes/{nombre_archivo}"
                                 
                                 ruta_img = None
@@ -445,6 +446,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 
                                 if not CACHE_SALIO.get(clave_cache):
                                     nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                    # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
@@ -459,6 +461,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 
                                 if not CACHE_SALIO.get(clave_cache):
                                     nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                    # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
@@ -481,6 +484,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     
                                     if not CACHE_SALIO.get(clave_cache):
                                         nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                        # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
                                         ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                         if os.path.exists(ruta_img):
