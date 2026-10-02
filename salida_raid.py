@@ -4,9 +4,9 @@ import json
 import io
 import asyncio
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image
 import discord
 import config
 
@@ -29,7 +29,7 @@ ULTIMO_RESET_CACHE_DIA = None
 # ==========================================
 # CONFIGURACIÓN DE TEMA / ESTILO VISUAL Y FUENTES
 # ==========================================
-TEMA_ACTIVO = "rojo"  # Puede cambiar a "morado", etc.
+TEMA_ACTIVO = "rojo"  
 
 FUENTE_BANKGOTHIC = getattr(config, "FUENTE_BANKGOTHIC", "arial.ttf")
 FUENTE_APTOS = getattr(config, "FUENTE_APTOS", "arial.ttf")
@@ -47,6 +47,9 @@ JEFS_ESPECIALES_RANDOM = {
     "zariche", "frintezza", "queen ant", "electrical", "balrog"
 }
 
+# ==========================================
+# DICCIONARIOS DE FILTROS INDEPENDIENTES
+# ==========================================
 FILTRO_PUBLICAR_RAIDS = {
     "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "no",
     "Electrical": "no", "Baium": "si", "Zaken": "si", "Core": "si",
@@ -78,69 +81,43 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
 # MAPEO Y FUNCIÓN DE ESTAMPADO CON IMÁGENES REDIMENSIONADAS
 # ==========================================
 MAPEO_NUMEROS = {
-    '0': NUMERO_0,
-    '1': NUMERO_1,
-    '2': NUMERO_2,
-    '3': NUMERO_3,
-    '4': NUMERO_4,
-    '5': NUMERO_5,
-    '6': NUMERO_6,
-    '7': NUMERO_7,
-    '8': NUMERO_8,
-    '9': NUMERO_9,
+    '0': NUMERO_0, '1': NUMERO_1, '2': NUMERO_2, '3': NUMERO_3, '4': NUMERO_4,
+    '5': NUMERO_5, '6': NUMERO_6, '7': NUMERO_7, '8': NUMERO_8, '9': NUMERO_9,
     ':': NUMERO_DOS_PUNTOS
 }
 
 def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=250, espacio_entre_digitos=12):
-    """
-    Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
-    la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
-    """
     cursor_x = x_inicial
-    
     for caracter in texto_hora:
         ruta_img_num = MAPEO_NUMEROS.get(caracter)
-        
         if ruta_img_num and os.path.exists(ruta_img_num):
             try:
                 img_digito = Image.open(ruta_img_num).convert("RGBA")
                 w_original, h_original = img_digito.size
                 
-                # --- AJUSTE ESPECIAL PARA LOS DOS PUNTOS (:) ---
                 if caracter == ':':
-                    altura_actual = int(altura_deseada * 0.75)  # 75% del tamaño de los números
+                    altura_actual = int(altura_deseada * 0.75)
                     nuevo_ancho = int(w_original * (altura_actual / h_original))
-                    
                     img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
-                    
-                    # Centrar verticalmente los dos puntos respecto a los números
                     offset_y = y_inicial + int((altura_deseada - altura_actual) / 2)
-                    
                     imagen_base.paste(img_digito, (cursor_x, offset_y), img_digito)
                 else:
-                    # Números normales
                     altura_actual = altura_deseada
                     nuevo_ancho = int(w_original * (altura_actual / h_original))
-                    
                     img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
-                    
                     imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
                 
-                # Avanzar el cursor horizontalmente
                 cursor_x += nuevo_ancho + espacio_entre_digitos
-                
             except Exception as e:
                 logger.error(f"❌ Error al estampar el dígito '{caracter}': {e}")
         else:
-            logger.warning(f"⚠️ No se encontró la imagen para el carácter '{caracter}' en la ruta: {ruta_img_num}")
+            logger.warning(f"⚠️ No se encontró la imagen para '{caracter}' en: {ruta_img_num}")
 
 
 def obtener_catalogo_imagenes_raid():
     directorio_base = getattr(config, "DIR_RAID", "imagen/raid")
     catalogo = {}
-    
     if not os.path.exists(directorio_base):
-        logger.warning(f"⚠️ El directorio de raids '{directorio_base}' no existe.")
         return catalogo
 
     for root, dirs, files in os.walk(directorio_base):
@@ -150,41 +127,26 @@ def obtener_catalogo_imagenes_raid():
                 clave_relativa = os.path.relpath(ruta_completa, directorio_base).replace("\\", "/")
                 catalogo[clave_relativa.lower()] = ruta_completa
                 catalogo[archivo.lower()] = ruta_completa
-                
     return catalogo
 
 
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS"):
     nombre_limpio = nombre_base_raid.strip().lower()
-    
-    # Ajustar rutas según el tipo de filtro si es necesario buscar plantillas específicas (ej. carpeta antes, salio, etc.)
     rutas_candidatas = []
     
     if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
-        rutas_candidatas = [
-            f"antes/{nombre_limpio}.png",
-            f"{tema}/antes/{nombre_limpio}.png",
-            f"{tema}/raid/antes/{nombre_limpio}.png"
-        ]
+        rutas_candidatas = [f"antes/{nombre_limpio}.png", f"{tema}/antes/{nombre_limpio}.png", f"{tema}/raid/antes/{nombre_limpio}.png"]
     elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
-        rutas_candidatas = [
-            f"salio/{nombre_limpio}.png",
-            f"{tema}/salio/{nombre_limpio}.png",
-            f"{tema}/raid/salio/{nombre_limpio}.png"
-        ]
+        rutas_candidatas = [f"salio/{nombre_limpio}.png", f"{tema}/salio/{nombre_limpio}.png", f"{tema}/raid/salio/{nombre_limpio}.png"]
 
-    # Rutas por defecto o generales
     rutas_candidatas.extend([
-        f"{tema}/raid/{nombre_limpio}.png",
-        f"{tema}/{nombre_limpio}.png",
-        f"raid/{tema}/raid/{nombre_limpio}.png",
-        f"raid/{tema}/{nombre_limpio}.png",
+        f"{tema}/raid/{nombre_limpio}.png", f"{tema}/{nombre_limpio}.png",
+        f"raid/{tema}/raid/{nombre_limpio}.png", f"raid/{tema}/{nombre_limpio}.png",
         f"{nombre_limpio}.png"
     ])
 
     for sufijo in ['h', 'm']:
         rutas_candidatas.insert(0, f"{tema}/raid/{nombre_limpio}{sufijo}.png")
-        rutas_candidatas.insert(0, f"raid/{tema}/raid/{nombre_limpio}{sufijo}.png")
 
     for ruta in rutas_candidatas:
         for clave_cat in catalogo:
@@ -199,56 +161,33 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtr
 
 
 async def enviar_prueba_calibracion(bot_instance):
-    """
-    Función exclusiva para forzar el envío inmediato de Valakas con la hora 22:30 
-    tan pronto el bot se conecta y está listo.
-    """
     await bot_instance.wait_until_ready()
     await asyncio.sleep(3)
     
     canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None) or 1549577944999927999
     channel_destino = bot_instance.get_channel(canal_id)
-    
     if not channel_destino:
-        logger.error(f"❌ [CALIBRACIÓN] No se encontró el canal con ID {canal_id}")
         return
 
     catalogo_raids = obtener_catalogo_imagenes_raid()
-    logger.info(f"📁 Catálogo de raids cargado con {len(catalogo_raids)} archivos detectados.")
-
-    nombre_imagen_base = "valakas"
-    ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre_imagen_base, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
+    ruta_imagen = obtener_imagen_raid(catalogo_raids, "valakas", tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS")
 
     if ruta_imagen and os.path.exists(ruta_imagen):
         try:
             img = Image.open(ruta_imagen).convert("RGBA")
-            texto_hora = "16:45"
-            
-            estampar_hora_con_imagenes(
-                imagen_base=img,
-                texto_hora=texto_hora,
-                x_inicial=POS_X,
-                y_inicial=POS_Y,
-                altura_deseada=95,  
-                espacio_entre_digitos=4
-            )
-            
+            estampar_hora_con_imagenes(img, "16:45", POS_X, POS_Y, altura_deseada=95, espacio_entre_digitos=4)
             with io.BytesIO() as image_binary:
                 img.convert("RGB").save(image_binary, "PNG")
                 image_binary.seek(0)
                 await channel_destino.send(
                     content="🧪 **[PRUEBA DE CALIBRACIÓN]**",
-                    file=discord.File(image_binary, filename=f"raid_{nombre_imagen_base}_2230.png")
+                    file=discord.File(image_binary, filename="raid_valakas_1645.png")
                 )
-                logger.info(f"🎯 [CALIBRACIÓN EXITOSA] Valakas enviado con la hora 22:30 al canal {canal_id}")
         except Exception as e:
-            logger.error(f"❌ [CALIBRACIÓN] Error al generar/enviar la imagen: {e}")
-    else:
-        logger.error(f"❌ [CALIBRACIÓN] No se encontró la imagen de valakas en las rutas de carpetas de '{TEMA_ACTIVO}'.")
+            logger.error(f"❌ [CALIBRACIÓN] Error: {e}")
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    """Procesa los ciclos de raids. PUBLICAR_RAIDS estampa hora; ANTES y SALIO envían la plantilla limpia sin hora."""
     global HISTORIAL_ENVIADOS_CACHE
     try:
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
@@ -262,7 +201,7 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         if not registros:
             return
 
-        # Mapear el tipo_filtro al diccionario correspondiente
+        # Seleccionar rigurosamente el diccionario exclusivo del servicio actual
         diccionarios_filtros = {
             "PUBLICAR_RAIDS": FILTRO_PUBLICAR_RAIDS,
             "PUBLICAR_RAIDS_ANTES": FILTRO_PUBLICAR_RAIDS_ANTES,
@@ -278,11 +217,10 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
 
         for item in registros:
             nombre = str(item.get("nombre", "")).strip()
-            
             if not nombre:
                 continue
 
-            # Validar si el raid está permitido en este filtro específico
+            # Evaluar permisos estrictos usando SOLO el diccionario del servicio
             permitido = "no"
             for k, v in filtro_actual.items():
                 if k.lower() == nombre.lower():
@@ -292,20 +230,20 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             if permitido != "si":
                 continue
 
-            # Definir clave única para la caché dependiendo si usa hora o no
+            # =========================================================
+            # REGLAS Y RESTRICCIONES SEGÚN EL TIPO DE FILTRO
+            # =========================================================
+            tiempo_str = ""
+            
             if tipo_filtro == "PUBLICAR_RAIDS":
                 tiempo_bruto = str(
-                    item.get("tiempo_str") or 
-                    item.get("tiempo") or 
-                    item.get("hora") or 
-                    item.get("respawn") or 
-                    ""
+                    item.get("tiempo_str") or item.get("tiempo") or 
+                    item.get("hora") or item.get("respawn") or ""
                 ).strip()
 
                 if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                     continue
 
-                # Extracción inteligente de la hora (busca patrón HH:MM)
                 match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
                 if match_hora:
                     tiempo_str = match_hora.group(0)
@@ -315,66 +253,60 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
                 if not tiempo_str or ":" not in tiempo_str:
                     continue
 
+                # Validación de horario exacto para PUBLICAR_RAIDS
+                try:
+                    hora_actual_str = datetime.now(ZONA_ARGENTINA).strftime("%H:%M")
+                    if hora_actual_str != tiempo_str:
+                        continue # Salta si todavía no es la hora exacta marcada en el JSON
+                except Exception as ex:
+                    logger.error(f"❌ Error al validar hora para {nombre}: {ex}")
+                    continue
+
                 clave_cache = f"{nombre}_{tiempo_str}_{tipo_filtro}"
+            
             else:
-                # Para ANTES, SALIO o super_epicos que no llevan hora, se valida por ciclo diario o nombre único
+                # Reglas para ANTES, SALIO o super_epicos (Sin hora, por ciclo diario)
                 fecha_hoy_str = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
                 clave_cache = f"{nombre}_{fecha_hoy_str}_{tipo_filtro}"
-                tiempo_str = ""
 
             if HISTORIAL_ENVIADOS_CACHE.get(clave_cache):
                 continue
 
-            # Buscar imagen del raid correspondiente según el filtro
+            # Obtener imagen específica para el servicio
             ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
             
             if ruta_imagen and os.path.exists(ruta_imagen):
                 try:
                     img = Image.open(ruta_imagen).convert("RGBA")
                     
-                    # SOLO PUBLICAR_RAIDS lleva hora estampada
                     if tipo_filtro == "PUBLICAR_RAIDS":
-                        estampar_hora_con_imagenes(
-                            imagen_base=img,
-                            texto_hora=tiempo_str,
-                            x_inicial=POS_X,
-                            y_inicial=POS_Y,
-                            altura_deseada=95,
-                            espacio_entre_digitos=4
-                        )
+                        estampar_hora_con_imagenes(img, tiempo_str, POS_X, POS_Y, altura_deseada=95, espacio_entre_digitos=4)
                         nombre_archivo = f"raid_{nombre.lower()}_{tiempo_str.replace(':', '')}.png"
                     else:
-                        # PUBLICAR_RAIDS_ANTES y PUBLICAR_RAIDS_SALIO van limpios sin hora
                         nombre_archivo = f"raid_{nombre.lower()}_{tipo_filtro.lower()}.png"
                     
                     with io.BytesIO() as image_binary:
                         img.convert("RGB").save(image_binary, "PNG")
                         image_binary.seek(0)
                         
-                        await channel_destino.send(
-                            file=discord.File(image_binary, filename=nombre_archivo)
-                        )
+                        await channel_destino.send(file=discord.File(image_binary, filename=nombre_archivo))
                         
-                        # Registrar en caché para evitar spam repetido
                         HISTORIAL_ENVIADOS_CACHE[clave_cache] = True
-                        logger.info(f"✅ [{tipo_filtro}] Plantilla de Raid '{nombre}' enviada con éxito.")
-                        
-                        # Pequeña pausa para no saturar la API de Discord
+                        logger.info(f"✅ [{tipo_filtro}] Raid '{nombre}' enviado con éxito.")
                         await asyncio.sleep(1.5)
                         
                 except Exception as e:
-                    logger.error(f"❌ Error al procesar/enviar el raid {nombre} para {tipo_filtro}: {e}")
+                    logger.error(f"❌ Error procesando {nombre} para {tipo_filtro}: {e}")
 
     except Exception as e:
-        logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
+        logger.error(f"❌ Error general en procesar_ciclo_raids ({tipo_filtro}): {e}")
 
 
 async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
-    logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
+    logger.info(f"🔄 Monitoreo permanente iniciado. Intervalo: {intervalo_segundos}s")
     
     asyncio.create_task(enviar_prueba_calibracion(bot_instance))
-
     await bot_instance.wait_until_ready()
 
     while not bot_instance.is_closed():
@@ -385,10 +317,11 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
                 ULTIMO_RESET_CACHE_DIA = fecha_hoy
                 HISTORIAL_ENVIADOS_CACHE.clear()
 
+            # Cada servicio corre de forma completamente independiente con su respectivo filtro
             for tipo in ["PUBLICAR_RAIDS", "PUBLICAR_RAIDS_ANTES", "PUBLICAR_RAIDS_SALIO", "super_epicos"]:
                 await procesar_ciclo_raids(bot_instance, ruta_json, tipo, intervalo_segundos)
                 
         except Exception as e:
-            logger.error(f"❌ Error en el ciclo de monitoreo permanente: {e}")
+            logger.error(f"❌ Error en bucle principal: {e}")
         
         await asyncio.sleep(intervalo_segundos)
