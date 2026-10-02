@@ -40,7 +40,7 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # ==========================================
 # Ajustadas para que la hora quede grande y abajo del texto "ARMAMOS" como en tu referencia
 POS_X = 250
-POS_Y = 710
+POS_Y = 610
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
