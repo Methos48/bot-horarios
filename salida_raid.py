@@ -319,7 +319,13 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                 if channel_principal and todos_los_jefes:
                     for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
-                        if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
+                        
+                        # Validación del filtro general o por defecto de 60+
+                        es_60_plus = item in raid_60_plus
+                        if es_60_plus and FILTRO_PUBLICAR_RAIDS_ANTES.get("otros_60_mas", "no") != "si":
+                            if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
+                                continue
+                        elif not es_60_plus and FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
                             continue
 
                         tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
@@ -372,8 +378,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                 if CACHE_ANTES.get(clave_cache):
                                     break
 
-                                nombre_archivo = f"{nombre.lower()}{sufijo}.png"
-                                # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
+                                nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                 ruta_personalizada = f"imagen/raid/raid/antes/{nombre_archivo}"
                                 
                                 ruta_img = None
@@ -384,11 +389,9 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                     ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_ANTES")
 
                                 if ruta_img and os.path.exists(ruta_img):
-                                    # 1. Enviar siempre al canal principal (ENVIAR_MENSAJE_CHANNEL_ID)
                                     with open(ruta_img, "rb") as binary:
                                         await channel_principal.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
                                     
-                                    # 2. Si pertenece a la lista indicada, enviar también al canal de clan (MENSAJE_CLAN_CHANNEL_ID)
                                     if nombre in EPICOS_Y_DRAGONES and channel_clan:
                                         try:
                                             with open(ruta_img, "rb") as binary_clan:
@@ -413,7 +416,6 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
         try:
             limpiar_memoria_cache_diaria()
             if os.path.exists(ruta_json):
-                # 🔒 LOCK APLICADO TAMBIÉN AQUÍ PARA EVITAR JSONDecodeError
                 async with json_lock:
                     with open(ruta_json, "r", encoding="utf-8") as f:
                         data = json.load(f)
@@ -445,8 +447,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
                                 
                                 if not CACHE_SALIO.get(clave_cache):
-                                    nombre_archivo = f"{nombre.lower()}{sufijo}.png"
-                                    # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
+                                    nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
@@ -460,8 +461,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
                                 
                                 if not CACHE_SALIO.get(clave_cache):
-                                    nombre_archivo = f"{nombre.lower()}{sufijo}.png"
-                                    # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
+                                    nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
@@ -483,8 +483,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}_35m"
                                     
                                     if not CACHE_SALIO.get(clave_cache):
-                                        nombre_archivo = f"{nombre.lower()}{sufijo}.png"
-                                        # Ruta actualizada según la imagen proporcionada (imagen/raid/raid/antes/)
+                                        nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                         ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                         if os.path.exists(ruta_img):
