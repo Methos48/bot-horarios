@@ -3,6 +3,7 @@ import logging
 import json
 import io
 import asyncio
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageOps, ImageFilter
@@ -293,14 +294,33 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
 
             # Definir clave única para la caché dependiendo si usa hora o no
             if tipo_filtro == "PUBLICAR_RAIDS":
-                tiempo_str = str(item.get("tiempo_str", "")).strip()
-                if not tiempo_str or tiempo_str in ["-", "None", ""]:
+                tiempo_bruto = str(
+                    item.get("tiempo_str") or 
+                    item.get("tiempo") or 
+                    item.get("hora") or 
+                    item.get("respawn") or 
+                    ""
+                ).strip()
+
+                if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                     continue
+
+                # Extracción inteligente de la hora (busca patrón HH:MM)
+                match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                if match_hora:
+                    tiempo_str = match_hora.group(0)
+                else:
+                    tiempo_str = "".join([c for c in tiempo_bruto if c.isdigit() or c == ':'])
+
+                if not tiempo_str or ":" not in tiempo_str:
+                    continue
+
                 clave_cache = f"{nombre}_{tiempo_str}_{tipo_filtro}"
             else:
                 # Para ANTES, SALIO o super_epicos que no llevan hora, se valida por ciclo diario o nombre único
                 fecha_hoy_str = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
                 clave_cache = f"{nombre}_{fecha_hoy_str}_{tipo_filtro}"
+                tiempo_str = ""
 
             if HISTORIAL_ENVIADOS_CACHE.get(clave_cache):
                 continue
