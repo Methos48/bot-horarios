@@ -39,8 +39,8 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
 # Ajustadas para que la hora quede grande y abajo del texto "ARMAMOS" como en tu referencia
-POS_X = 20
-POS_Y = 820
+POS_X = 250
+POS_Y = 710
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
