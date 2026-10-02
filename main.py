@@ -407,7 +407,11 @@ async def on_ready():
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
         
+    # =========================================================================
+    # 🚀 ACTIVACIÓN DEL MONITOREO AUTÓNOMO DE SALIDA RAID EN SEGUNDO PLANO
+    # =========================================================================
     bot.loop.create_task(salida_raid.iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
+    logger.info("🚀 Tarea en segundo plano 'iniciar_monitoreo_permanente_raids' lanzada con éxito.")
 
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
