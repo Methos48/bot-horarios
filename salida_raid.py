@@ -255,12 +255,14 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES
+# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Actualizado)
 # ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
+            limpiar_memoria_cache_diaria()
             canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+            
             if canal_id and os.path.exists(ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -269,27 +271,90 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                 raid_60_menos = data.get("raid_60_menos", [])
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
 
-                catalogo = obtener_catalogo_imagenes_raid()
+                todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
                 channel = bot_instance.get_channel(canal_id)
-                fecha_hoy = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
 
-                if channel and raid_60_plus:
-                    for item in raid_60_plus:
+                ahora_arg = datetime.now(ZONA_ARGENTINA)
+                hoy_str = ahora_arg.strftime("%Y-%m-%d")
+
+                if channel and todos_los_jefes:
+                    for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
                             continue
 
-                        clave_cache = f"{nombre}_{fecha_hoy}"
-                        if CACHE_ANTES.get(clave_cache):
+                        tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
+                        if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                             continue
 
-                        ruta_img = obtener_imagen_raid(catalogo, nombre, "PUBLICAR_RAIDS_ANTES")
-                        if ruta_img and os.path.exists(ruta_img):
-                            with open(ruta_img, "rb") as binary:
-                                await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes.png"))
-                                CACHE_ANTES[clave_cache] = True
-                                logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}'.")
-                                await asyncio.sleep(1.5)
+                        match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                        if not match_hora:
+                            continue
+                        
+                        hora_raid_str = match_hora.group(0)
+                        fecha_raid_str = hoy_str
+                        match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
+                        if match_fecha:
+                            fecha_raid_str = match_fecha.group(0)
+
+                        # Asegurar estrictamente que la publicación sea en el día en curso
+                        if fecha_raid_str != hoy_str:
+                            continue
+
+                        try:
+                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                        except ValueError:
+                            continue
+
+                        sufijos_a_evaluar = []
+
+                        # --- REGLA 3: Valakas, Antharas y Fafureon ---
+                        if nombre in ["Valakas", "Antharas", "Fafureon"]:
+                            dt_60m = dt_raid - timedelta(minutes=60)
+                            dt_30m = dt_raid - timedelta(minutes=30)
+                            dt_0m = dt_raid
+                            sufijos_a_evaluar = [
+                                (dt_60m, "1"),
+                                (dt_30m, "2"),
+                                (dt_0m, "3")
+                            ]
+                        # --- REGLA 2: Épicos Fijos (Justo a su hora, sufijo 1) ---
+                        elif nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
+                            sufijos_a_evaluar = [
+                                (dt_raid, "1")
+                            ]
+                        # --- REGLA 1: Raids Normales y otros (10 minutos antes, sufijo 1) ---
+                        else:
+                            dt_10m_antes = dt_raid - timedelta(minutes=10)
+                            sufijos_a_evaluar = [
+                                (dt_10m_antes, "1")
+                            ]
+
+                        # Evaluar cada ventana con el margen de 5 minutos y caché independiente
+                        for dt_objetivo, sufijo in sufijos_a_evaluar:
+                            if dt_objetivo <= ahora_arg < dt_objetivo + timedelta(minutes=5):
+                                clave_cache = f"{nombre}_{fecha_raid_str}_antes_{sufijo}"
+                                
+                                if CACHE_ANTES.get(clave_cache):
+                                    break
+
+                                nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                ruta_personalizada = f"imagen/raid/raid/antes/{nombre_archivo}"
+                                
+                                ruta_img = None
+                                if os.path.exists(ruta_personalizada):
+                                    ruta_img = ruta_personalizada
+                                else:
+                                    catalogo = obtener_catalogo_imagenes_raid()
+                                    ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_ANTES")
+
+                                if ruta_img and os.path.exists(ruta_img):
+                                    with open(ruta_img, "rb") as binary:
+                                        await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
+                                        CACHE_ANTES[clave_cache] = True
+                                        logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}' (Sufijo: {sufijo}).")
+                                        await asyncio.sleep(1.5)
+                                break
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids_antes: {e}")
 
