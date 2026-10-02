@@ -428,6 +428,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                     with open(ruta_json, "r", encoding="utf-8") as f:
                         data = json.load(f)
 
+                raid_60_plus = data.get("raid_60_plus", [])
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hoy_str = ahora_arg.strftime("%Y-%m-%d")
@@ -436,8 +437,23 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                     for item in vivo_o_muerto:
                         nombre = str(item.get("nombre", "")).strip()
                         
-                        if FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre, "no") != "si":
-                            continue
+                        # 1. Comprobar si el jefe está explícitamente en el diccionario de filtros
+                        valor_filtro_individual = FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre)
+                        
+                        # 2. Comprobar si pertenece al grupo de 60+
+                        es_60_plus = item in raid_60_plus or nombre in [r.get("nombre") for r in raid_60_plus]
+                        
+                        # 3. Lógica de decisión según FILTRO_PUBLICAR_RAIDS_SALIO
+                        if valor_filtro_individual is not None:
+                            if valor_filtro_individual != "si":
+                                continue
+                        else:
+                            if es_60_plus:
+                                if FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_mas", "no") != "si":
+                                    continue
+                            else:
+                                if FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos", "no") != "si":
+                                    continue
 
                         estado_actual_json = str(item.get("estado") or item.get("status") or item.get("vivo_o_muerto") or "").strip().lower()
                         if not estado_actual_json:
