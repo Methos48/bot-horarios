@@ -231,7 +231,8 @@ async def enviar_prueba_calibracion(bot_instance):
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    """Procesa los ciclos regulares de raids leyendo del archivo JSON provisto."""
+    """Procesa los ciclos regulares de raids leyendo del archivo JSON provisto de forma autónoma."""
+    global HISTORIAL_ENVIADOS_CACHE
     try:
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
         if not canal_id or not os.path.exists(ruta_json):
@@ -255,6 +256,46 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
             
             if not nombre or not tiempo_str or tiempo_str in ["-", "None"]:
                 continue
+
+            # Clave única para evitar duplicados en el mismo ciclo diario
+            clave_cache = f"{nombre}_{tiempo_str}_{tipo_filtro}"
+            if HISTORIAL_ENVIADOS_CACHE.get(clave_cache):
+                continue
+
+            # Buscar imagen del raid correspondiente
+            ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
+            
+            if ruta_imagen and os.path.exists(ruta_imagen):
+                try:
+                    img = Image.open(ruta_imagen).convert("RGBA")
+                    
+                    # Estampar la hora real que viene del JSON
+                    estampar_hora_con_imagenes(
+                        imagen_base=img,
+                        texto_hora=tiempo_str,
+                        x_inicial=POS_X,
+                        y_inicial=POS_Y,
+                        altura_deseada=95,
+                        espacio_entre_digitos=4
+                    )
+                    
+                    with io.BytesIO() as image_binary:
+                        img.convert("RGB").save(image_binary, "PNG")
+                        image_binary.seek(0)
+                        
+                        await channel_destino.send(
+                            file=discord.File(image_binary, filename=f"raid_{nombre.lower()}_{tiempo_str.replace(':', '')}.png")
+                        )
+                        
+                        # Registrar en caché para evitar spam repetido
+                        HISTORIAL_ENVIADOS_CACHE[clave_cache] = True
+                        logger.info(f"✅ [AUTÓNOMO] Raid '{nombre}' enviado con éxito a las {tiempo_str}.")
+                        
+                        # Pequeña pausa para no saturar la API de Discord
+                        await asyncio.sleep(1.5)
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error al estampar/enviar el raid {nombre}: {e}")
 
     except Exception as e:
         logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
