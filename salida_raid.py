@@ -5,9 +5,15 @@ import io
 import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter
 import discord
 import config
+
+from config import (
+    NUMERO_0, NUMERO_1, NUMERO_2, NUMERO_3, NUMERO_4,
+    NUMERO_5, NUMERO_6, NUMERO_7, NUMERO_8, NUMERO_9,
+    NUMERO_DOS_PUNTOS
+)
 
 logger = logging.getLogger("SalidaRaid")
 
@@ -67,27 +73,48 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
     "otros_60_mas": "si", "otros_60_menos": "no"
 }
 
+# ==========================================
+# MAPEO Y FUNCIÓN DE ESTAMPADO CON IMÁGENES
+# ==========================================
+MAPEO_NUMEROS = {
+    '0': NUMERO_0,
+    '1': NUMERO_1,
+    '2': NUMERO_2,
+    '3': NUMERO_3,
+    '4': NUMERO_4,
+    '5': NUMERO_5,
+    '6': NUMERO_6,
+    '7': NUMERO_7,
+    '8': NUMERO_8,
+    '9': NUMERO_9,
+    ':': NUMERO_DOS_PUNTOS
+}
 
-def aplicar_textura_a_texto(imagen_base, texto, x, y, ruta_fuente, ruta_textura, tamano_fuente=60):
-    try:
-        fuente = ImageFont.truetype(ruta_fuente, size=tamano_fuente)
-    except IOError:
-        fuente = ImageFont.load_default()
-
-    txt_capa = Image.new("L", imagen_base.size, 0)
-    draw_txt = ImageDraw.Draw(txt_capa)
-    draw_txt.text((x, y), texto, fill=255, font=fuente)
-
-    if ruta_textura and os.path.exists(ruta_textura):
-        try:
-            textura = Image.open(ruta_textura).convert("RGBA")
-            textura = textura.resize(imagen_base.size)
-        except Exception:
-            textura = Image.new("RGBA", imagen_base.size, (200, 200, 200, 255))
-    else:
-        textura = Image.new("RGBA", imagen_base.size, (200, 200, 200, 255))
-
-    imagen_base.paste(textura, (0, 0), txt_capa)
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, espacio_entre_digitos=2):
+    """
+    Recorre cada carácter de 'texto_hora' y pega su respectiva imagen 
+    desde la carpeta de números sobre la imagen_base del raid.
+    """
+    cursor_x = x_inicial
+    
+    for caracter in texto_hora:
+        ruta_img_num = MAPEO_NUMEROS.get(caracter)
+        
+        if ruta_img_num and os.path.exists(ruta_img_num):
+            try:
+                img_digito = Image.open(ruta_img_num).convert("RGBA")
+                
+                if img_digito.mode == 'RGBA':
+                    imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
+                else:
+                    imagen_base.paste(img_digito, (cursor_x, y_inicial))
+                
+                cursor_x += img_digito.width + espacio_entre_digitos
+                
+            except Exception as e:
+                logger.error(f"❌ Error al estampar el dígito '{caracter}': {e}")
+        else:
+            logger.warning(f"⚠️ No se encontró la imagen para el carácter '{caracter}' en la ruta: {ruta_img_num}")
 
 
 def obtener_catalogo_imagenes_raid():
@@ -163,14 +190,12 @@ async def enviar_prueba_calibracion(bot_instance):
             img = Image.open(ruta_imagen).convert("RGBA")
             texto_hora = "22:30"
             
-            aplicar_textura_a_texto(
+            estampar_hora_con_imagenes(
                 imagen_base=img,
-                texto=texto_hora,
-                x=POS_X,
-                y=POS_Y,
-                ruta_fuente=FUENTE_BANKGOTHIC,
-                ruta_textura=DIR_TEXTURA,
-                tamano_fuente=60
+                texto_hora=texto_hora,
+                x_inicial=POS_X,
+                y_inicial=POS_Y,
+                espacio_entre_digitos=2
             )
             
             with io.BytesIO() as image_binary:
@@ -197,7 +222,6 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         with open(ruta_json, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Seleccionar la lista correspondiente según la estructura del json
         registros = data.get("raid_60_plus", []) or data.get("vivo_o_muerto", [])
         if not registros:
             return
@@ -207,15 +231,12 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         if not channel_destino:
             return
 
-        # Lógica de procesamiento de filtros y alertas programadas
         for item in registros:
             nombre = str(item.get("nombre", "")).strip()
             tiempo_str = str(item.get("tiempo_str", "")).strip()
             
             if not nombre or not tiempo_str or tiempo_str in ["-", "None"]:
                 continue
-
-            # Aquí se pueden integrar validaciones adicionales de tiempo o caché si es necesario
 
     except Exception as e:
         logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
@@ -225,7 +246,6 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
     global HISTORIAL_ENVIADOS_CACHE, ULTIMO_RESET_CACHE_DIA
     logger.info(f"🔄 Bucle permanente de monitoreo de Raids iniciado. Intervalo: {intervalo_segundos}s")
     
-    # Lanzar la prueba de calibración en segundo plano al arrancar
     asyncio.create_task(enviar_prueba_calibracion(bot_instance))
 
     await bot_instance.wait_until_ready()
