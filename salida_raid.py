@@ -19,11 +19,14 @@ logger = logging.getLogger("SalidaRaid")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
+# Lock global para sincronizar el acceso concurrente al archivo JSON
+json_lock = asyncio.Lock()
+
 # Cachés independientes para evitar cruces
 CACHE_PUBLICAR_RAIDS = {}
 CACHE_ANTES = {}
 CACHE_SALIO = {}
-ESTADOS_PREVIOS_RAIDS = {}     # Guarda el estado anterior ("muerto" / "vivo") de cada raid para el servicio SALIO
+ESTADOS_PREVIOS_RAIDS = {}      # Guarda el estado anterior ("muerto" / "vivo") de cada raid para el servicio SALIO
 TIEMPOS_CAMBIO_VIVO = {}        # Guarda el timestamp exacto en que un raid pasó a "vivo"
 ULTIMO_RESET_CACHE_DIA = None  
 
@@ -184,8 +187,9 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
             limpiar_memoria_cache_diaria()
             canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
             if canal_id and os.path.exists(ruta_json):
-                with open(ruta_json, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                async with json_lock:
+                    with open(ruta_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
 
                 raid_60_plus = data.get("raid_60_plus", [])
                 raid_60_menos = data.get("raid_60_menos", [])
@@ -296,8 +300,9 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
             canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
             
             if canal_principal_id and os.path.exists(ruta_json):
-                with open(ruta_json, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                async with json_lock:
+                    with open(ruta_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
 
                 raid_60_plus = data.get("raid_60_plus", [])
                 raid_60_menos = data.get("raid_60_menos", [])
@@ -407,8 +412,9 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
         try:
             limpiar_memoria_cache_diaria()
             if os.path.exists(ruta_json):
-                with open(ruta_json, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                async with json_lock:
+                    with open(ruta_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
 
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
