@@ -38,8 +38,9 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # ==========================================
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
+# Ajustadas para que la hora quede grande y abajo del texto "ARMAMOS" como en tu referencia
 POS_X = 20
-POS_Y = 565
+POS_Y = 820
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
@@ -90,7 +91,7 @@ MAPEO_NUMEROS = {
     ':': NUMERO_DOS_PUNTOS
 }
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=35, espacio_entre_digitos=2):
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=95, espacio_entre_digitos=4):
     """
     Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
     la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
@@ -104,7 +105,7 @@ def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, al
             try:
                 img_digito = Image.open(ruta_img_num).convert("RGBA")
                 
-                # Calcular el ancho proporcional basado en la altura deseada
+                # Calcular el ancho proporcional basado en la altura deseada grande
                 w_original, h_original = img_digito.size
                 nuevo_ancho = int(w_original * (altura_deseada / h_original))
                 
@@ -201,8 +202,8 @@ async def enviar_prueba_calibracion(bot_instance):
                 texto_hora=texto_hora,
                 x_inicial=POS_X,
                 y_inicial=POS_Y,
-                altura_deseada=35,  # Puedes modificar este valor si quieres los números más chicos o grandes
-                espacio_entre_digitos=2
+                altura_deseada=95,  # Tamaño grande equivalente a la segunda imagen
+                espacio_entre_digitos=4
             )
             
             with io.BytesIO() as image_binary:
