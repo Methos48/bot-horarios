@@ -417,7 +417,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 3: PUBLICAR_RAIDS_SALIO (MONITOREO VIVO/MUERTO)
+# SERVICIO 3: PUBLICAR_RAIDS_SALIO (MONITOREO VIVO/MUERTO Y HORA EXACTA)
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -429,21 +429,23 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                         data = json.load(f)
 
                 raid_60_plus = data.get("raid_60_plus", [])
+                raid_60_menos = data.get("raid_60_menos", [])
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
+                
+                todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hoy_str = ahora_arg.strftime("%Y-%m-%d")
 
-                if vivo_o_muerto:
-                    for item in vivo_o_muerto:
+                if todos_los_jefes:
+                    for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
+                        if not nombre:
+                            continue
                         
-                        # 1. Comprobar si el jefe está explícitamente en el diccionario de filtros
+                        # 1. Comprobar filtros (individuales o por grupos de nivel)
                         valor_filtro_individual = FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre)
-                        
-                        # 2. Comprobar si pertenece al grupo de 60+
                         es_60_plus = item in raid_60_plus or nombre in [r.get("nombre") for r in raid_60_plus]
                         
-                        # 3. Lógica de decisión según FILTRO_PUBLICAR_RAIDS_SALIO
                         if valor_filtro_individual is not None:
                             if valor_filtro_individual != "si":
                                 continue
@@ -455,13 +457,54 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 if FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos", "no") != "si":
                                     continue
 
+                        # =========================================================================
+                        # REGLA A: Raids comunes u otros (No nombrados explícitamente en épicos/dragones)
+                        # Se imprimen tan pronto llega su hora con nombre en minúsculas pegado y terminación 2
+                        # =========================================================================
+                        if nombre not in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"]:
+                            tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
+                            if tiempo_bruto and tiempo_bruto not in ["-", "None", "null", ""]:
+                                match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                                if match_hora:
+                                    hora_raid_str = match_hora.group(0)
+                                    fecha_raid_str = hoy_str
+                                    match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
+                                    if match_fecha:
+                                        fecha_raid_str = match_fecha.group(0)
+
+                                    if fecha_raid_str == hoy_str:
+                                        try:
+                                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                                            
+                                            if dt_raid <= ahora_arg < dt_raid + timedelta(minutes=5):
+                                                sufijo = "2"
+                                                clave_cache_hora = f"{nombre}_{fecha_raid_str}_{hora_raid_str}_hora_exacta"
+                                                if not CACHE_SALIO.get(clave_cache_hora):
+                                                    nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
+                                                    ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+                                                    
+                                                    if not os.path.exists(ruta_img):
+                                                        catalogo = obtener_catalogo_imagenes_raid()
+                                                        ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
+
+                                                    if ruta_img and os.path.exists(ruta_img):
+                                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
+                                                        CACHE_SALIO[clave_cache_hora] = True
+                                                        logger.info(f"✅ [SALIO] Raid común '{nombre}' publicado a su hora exacta ({hora_raid_str}) con terminación {sufijo}.")
+                                                        await asyncio.sleep(1.0)
+                                        except ValueError:
+                                            pass
+                            continue
+
+                        # =========================================================================
+                        # REGLA B: Monitoreo de estado (Vivo / Muerto) para Épicos y Dragones
+                        # =========================================================================
                         estado_actual_json = str(item.get("estado") or item.get("status") or item.get("vivo_o_muerto") or "").strip().lower()
                         if not estado_actual_json:
                             continue
 
                         estado_anterior = ESTADOS_PREVIOS_RAIDS.get(nombre, "muerto")
 
-                        # Detección de transición de MUERTO a VIVO
                         if estado_anterior == "muerto" and estado_actual_json == "vivo":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "vivo"
                             TIEMPOS_CAMBIO_VIVO[nombre] = ahora_arg
@@ -476,7 +519,11 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
-                                    if os.path.exists(ruta_img):
+                                    if not os.path.exists(ruta_img):
+                                        catalogo = obtener_catalogo_imagenes_raid()
+                                        ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
+
+                                    if ruta_img and os.path.exists(ruta_img):
                                         await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                         CACHE_SALIO[clave_cache] = True
                                         logger.info(f"✅ [SALIO] Publicado épico inmediato '{nombre}' (Sufijo {sufijo}).")
@@ -491,7 +538,11 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
-                                    if os.path.exists(ruta_img):
+                                    if not os.path.exists(ruta_img):
+                                        catalogo = obtener_catalogo_imagenes_raid()
+                                        ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
+
+                                    if ruta_img and os.path.exists(ruta_img):
                                         await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                         CACHE_SALIO[clave_cache] = True
                                         logger.info(f"✅ [SALIO] Publicado gran dragón inmediato '{nombre}' (Sufijo {sufijo}).")
@@ -500,7 +551,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                         if estado_actual_json == "muerto":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "muerto"
 
-                        # Valakas y Antharas: 35 minutos después de pasar a vivo -> Terminal 5 (con margen de 5 min)
+                        # Valakas y Antharas: 35 minutos después de pasar a vivo -> Terminal 5 (con memoria independiente CACHE_SALIO_35M)
                         if nombre in ["Valakas", "Antharas"] and ESTADOS_PREVIOS_RAIDS.get(nombre) == "vivo":
                             tiempo_cambio = TIEMPOS_CAMBIO_VIVO.get(nombre)
                             if tiempo_cambio:
@@ -514,7 +565,11 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                         nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                         ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
-                                        if os.path.exists(ruta_img):
+                                        if not os.path.exists(ruta_img):
+                                            catalogo = obtener_catalogo_imagenes_raid()
+                                            ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
+
+                                        if ruta_img and os.path.exists(ruta_img):
                                             await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                             CACHE_SALIO_35M[clave_cache_35m] = True
                                             logger.info(f"✅ [SALIO] Publicado '{nombre}' a los 35 minutos (Sufijo {sufijo}).")
