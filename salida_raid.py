@@ -38,8 +38,8 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # ==========================================
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
-POS_X = 60
-POS_Y = 600
+POS_X = 80
+POS_Y = 590
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
