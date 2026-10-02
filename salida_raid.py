@@ -24,7 +24,7 @@ CACHE_PUBLICAR_RAIDS = {}
 CACHE_ANTES = {}
 CACHE_SALIO = {}
 ESTADOS_PREVIOS_RAIDS = {}     # Guarda el estado anterior ("muerto" / "vivo") de cada raid para el servicio SALIO
-TIEMPOS_CAMBIO_VIVO = {}       # Guarda el timestamp exacto en que un raid pasó a "vivo"
+TIEMPOS_CAMBIO_VIVO = {}        # Guarda el timestamp exacto en que un raid pasó a "vivo"
 ULTIMO_RESET_CACHE_DIA = None  
 
 TEMA_ACTIVO = "morado"  # Puede cambiarse a "rojo", etc.
@@ -60,6 +60,12 @@ FILTRO_PUBLICAR_RAIDS_SALIO = {
     "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
     "otros_60_mas": "si", "otros_60_menos": "no"
 }
+
+# Lista de épicos y dragones para validaciones de doble canal en ANTES
+EPICOS_Y_DRAGONES = [
+    "Baium", "Zaken", "Core", "Orfen", "Queen Ant", 
+    "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"
+]
 
 # ==========================================
 # FUNCIONES AUXILIARES VISUALES
@@ -170,18 +176,17 @@ async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_disco
             logger.error(f"❌ Error al enviar imagen de SALIO al canal {canal.id}: {e}")
 
 # ==========================================
-# SERVICIO 1: PUBLICAR_RAIDS
+# SERVICIO 1: PUBLICAR_RAIDS (Usa MENSAJE_CLAN_CHANNEL_ID)
 # ==========================================
 async def servicio_publicar_raids(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
             limpiar_memoria_cache_diaria()
-            canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+            canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
             if canal_id and os.path.exists(ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Lectura de las 3 tablas del JSON de forma autónoma
                 raid_60_plus = data.get("raid_60_plus", [])
                 raid_60_menos = data.get("raid_60_menos", [])
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
@@ -224,7 +229,6 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         tipo_ventana = None
                         texto_a_estampar = hora_raid_str
 
-                        # Lógica de Excepciones Especiales (Valakas, Antharas, Fafureon)
                         if nombre in ["Valakas", "Antharas", "Fafureon"]:
                             dt_raid_ajustado = dt_raid - timedelta(minutes=30)
                             texto_a_estampar = dt_raid_ajustado.strftime("%H:%M")
@@ -243,7 +247,6 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 tipo_ventana = "mismo_dia_18h"
                                 sufijo_imagen = "h"
                         else:
-                            # Raids Normales (entre 16:00 y 23:00): se publican el mismo día a las 14:00 (margen de 5 min)
                             if 16 <= dt_raid.hour <= 23:
                                 dt_publicacion = dt_raid.replace(hour=14, minute=0, second=0, microsecond=0)
                                 if dt_publicacion <= ahora_arg < dt_publicacion + timedelta(minutes=5):
@@ -257,7 +260,6 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         if CACHE_PUBLICAR_RAIDS.get(clave_cache):
                             continue
 
-                        # Rutas dinámicas por tema
                         nombre_archivo_busqueda = f"{nombre.lower()}{sufijo_imagen}.png"
                         ruta_personalizada_tema = f"imagen/raid/{TEMA_ACTIVO}/raid/{nombre_archivo_busqueda}"
                         
@@ -276,7 +278,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 binary.seek(0)
                                 await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_{sufijo_imagen}.png"))
                                 CACHE_PUBLICAR_RAIDS[clave_cache] = True
-                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito (Ventana: {tipo_ventana}).")
+                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito al canal de clan (Ventana: {tipo_ventana}).")
                                 await asyncio.sleep(1.5)
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids: {e}")
@@ -284,15 +286,16 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Actualizado)
+# SERVICIO 2: PUBLICAR_RAIDS_ANTES (ENVIAR_MENSAJE_CHANNEL_ID + MENSAJE_CLAN_CHANNEL_ID para la lista indicada)
 # ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
             limpiar_memoria_cache_diaria()
-            canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+            canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+            canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
             
-            if canal_id and os.path.exists(ruta_json):
+            if canal_principal_id and os.path.exists(ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
@@ -301,12 +304,14 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
 
                 todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
-                channel = bot_instance.get_channel(canal_id)
+                
+                channel_principal = bot_instance.get_channel(canal_principal_id)
+                channel_clan = bot_instance.get_channel(canal_clan_id) if canal_clan_id else None
 
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hoy_str = ahora_arg.strftime("%Y-%m-%d")
 
-                if channel and todos_los_jefes:
+                if channel_principal and todos_los_jefes:
                     for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
@@ -326,7 +331,6 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                         if match_fecha:
                             fecha_raid_str = match_fecha.group(0)
 
-                        # Asegurar estrictamente que la publicación sea en el día en curso
                         if fecha_raid_str != hoy_str:
                             continue
 
@@ -337,7 +341,6 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
 
                         sufijos_a_evaluar = []
 
-                        # --- REGLA 3: Valakas, Antharas y Fafureon ---
                         if nombre in ["Valakas", "Antharas", "Fafureon"]:
                             dt_60m = dt_raid - timedelta(minutes=60)
                             dt_30m = dt_raid - timedelta(minutes=30)
@@ -347,19 +350,16 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                 (dt_30m, "2"),
                                 (dt_0m, "3")
                             ]
-                        # --- REGLA 2: Épicos Fijos (Justo a su hora, sufijo 1) ---
                         elif nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
                             sufijos_a_evaluar = [
                                 (dt_raid, "1")
                             ]
-                        # --- REGLA 1: Raids Normales y otros (10 minutos antes, sufijo 1) ---
                         else:
                             dt_10m_antes = dt_raid - timedelta(minutes=10)
                             sufijos_a_evaluar = [
                                 (dt_10m_antes, "1")
                             ]
 
-                        # Evaluar cada ventana con el margen de 5 minutos y caché independiente
                         for dt_objetivo, sufijo in sufijos_a_evaluar:
                             if dt_objetivo <= ahora_arg < dt_objetivo + timedelta(minutes=5):
                                 clave_cache = f"{nombre}_{fecha_raid_str}_antes_{sufijo}"
@@ -378,11 +378,21 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                     ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_ANTES")
 
                                 if ruta_img and os.path.exists(ruta_img):
+                                    # 1. Enviar siempre al canal principal (ENVIAR_MENSAJE_CHANNEL_ID)
                                     with open(ruta_img, "rb") as binary:
-                                        await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
-                                        CACHE_ANTES[clave_cache] = True
-                                        logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}' (Sufijo: {sufijo}).")
-                                        await asyncio.sleep(1.5)
+                                        await channel_principal.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
+                                    
+                                    # 2. Si pertenece a la lista indicada, enviar también al canal de clan (MENSAJE_CLAN_CHANNEL_ID)
+                                    if nombre in EPICOS_Y_DRAGONES and channel_clan:
+                                        try:
+                                            with open(ruta_img, "rb") as binary_clan:
+                                                await channel_clan.send(file=discord.File(binary_clan, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
+                                        except Exception as e_clan:
+                                            logger.error(f"❌ Error al enviar aviso ANTES al canal de clan para '{nombre}': {e_clan}")
+
+                                    CACHE_ANTES[clave_cache] = True
+                                    logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}' (Sufijo: {sufijo}).")
+                                    await asyncio.sleep(1.5)
                                 break
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids_antes: {e}")
@@ -390,7 +400,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 3: PUBLICAR_RAIDS_SALIO (Actualizado)
+# SERVICIO 3: PUBLICAR_RAIDS_SALIO
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -400,7 +410,6 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Tabla objetivo solicitada: vivo_o_muerto
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hoy_str = ahora_arg.strftime("%Y-%m-%d")
@@ -409,24 +418,20 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                     for item in vivo_o_muerto:
                         nombre = str(item.get("nombre", "")).strip()
                         
-                        # 1. Consulta primero el filtro específico de este servicio
                         if FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre, "no") != "si":
                             continue
 
-                        # Obtener el estado actual en el JSON (normalizado a minúsculas)
                         estado_actual_json = str(item.get("estado") or item.get("status") or item.get("vivo_o_muerto") or "").strip().lower()
                         if not estado_actual_json:
                             continue
 
                         estado_anterior = ESTADOS_PREVIOS_RAIDS.get(nombre, "muerto")
 
-                        # Detectar cuando pasa de "muerto" a "vivo"
                         if estado_anterior == "muerto" and estado_actual_json == "vivo":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "vivo"
                             TIEMPOS_CAMBIO_VIVO[nombre] = ahora_arg
                             logger.info(f"⚡ [SALIO] Cambio detectado: '{nombre}' pasó de MUERTO a VIVO.")
 
-                            # Regla A: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche (Terminación 2)
                             if nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
                                 sufijo = "2"
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
@@ -441,7 +446,6 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                         logger.info(f"✅ [SALIO] Publicado épico inmediato '{nombre}' (Sufijo {sufijo}).")
                                         await asyncio.sleep(1.0)
 
-                            # Regla B: Valakas, Antharas, Fafureon (Terminación 4, justo al cambiar a vivo)
                             elif nombre in ["Valakas", "Antharas", "Fafureon"]:
                                 sufijo = "4"
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
@@ -456,11 +460,9 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                         logger.info(f"✅ [SALIO] Publicado gran dragón inmediato '{nombre}' (Sufijo {sufijo}).")
                                         await asyncio.sleep(1.0)
 
-                        # Si en el JSON se marca como muerto, actualizar memoria para futuros ciclos
                         if estado_actual_json == "muerto":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "muerto"
 
-                        # Regla C: Valakas y Antharas a los 35 minutos exactos después de pasar a vivo (Terminación 5) con margen de 5 min
                         if nombre in ["Valakas", "Antharas"] and ESTADOS_PREVIOS_RAIDS.get(nombre) == "vivo":
                             tiempo_cambio = TIEMPOS_CAMBIO_VIVO.get(nombre)
                             if tiempo_cambio:
