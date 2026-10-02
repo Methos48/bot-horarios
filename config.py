@@ -37,6 +37,7 @@ if not HORARIO_CHANNEL_ID:
 # --- RUTAS DE RECURSOS (Imágenes, Fuentes y Plantillas) ---
 DIR_IMAGENES = "imagen"
 DIR_FUENTES = os.path.join(DIR_IMAGENES, "fuentes")
+DIR_NUMEROS = os.path.join(DIR_IMAGENES, "numeros")  # <-- Nueva carpeta de números[cite: 1]
 DIR_RAID = os.path.join(DIR_IMAGENES, "raid")
 DIR_TABLAS = os.path.join(DIR_IMAGENES, "tablas")
 DIR_TEXTURA = os.path.join(DIR_IMAGENES, "textura")
@@ -60,6 +61,19 @@ DIR_RAID_PRINCIPAL = os.path.join(DIR_RAID, "raid")  # Carpeta imagen/raid
 FUENTE_APTOS = os.path.join(DIR_FUENTES, "Aptos Narrow.ttf")
 FUENTE_BIOME = os.path.join(DIR_FUENTES, "Biome.ttf")
 FUENTE_BANKGOTHIC = os.path.join(DIR_FUENTES, "BankGothic Bold.ttf")
+
+# --- RECURSOS DE LA CARPETA NUMEROS ---[cite: 1]
+NUMERO_0 = os.path.join(DIR_NUMEROS, "0.jpg")
+NUMERO_1 = os.path.join(DIR_NUMEROS, "1.jpg")
+NUMERO_2 = os.path.join(DIR_NUMEROS, "2.jpg")
+NUMERO_3 = os.path.join(DIR_NUMEROS, "3.jpg")
+NUMERO_4 = os.path.join(DIR_NUMEROS, "4.jpg")
+NUMERO_5 = os.path.join(DIR_NUMEROS, "5.jpg")
+NUMERO_6 = os.path.join(DIR_NUMEROS, "6.jpg")
+NUMERO_7 = os.path.join(DIR_NUMEROS, "7.jpg")
+NUMERO_8 = os.path.join(DIR_NUMEROS, "8.jpg")
+NUMERO_9 = os.path.join(DIR_NUMEROS, "9.jpg")
+NUMERO_DOS_PUNTOS = os.path.join(DIR_NUMEROS, "2puntos.jpg")
 
 # Plantillas y Tablas principales (.png)
 PLANTILLA_RONDA = os.path.join(DIR_TABLAS, "ronda.png")
