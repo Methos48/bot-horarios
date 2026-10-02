@@ -6,6 +6,7 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import discord
 from PIL import Image
 import config
 from config import (
@@ -22,6 +23,8 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 CACHE_PUBLICAR_RAIDS = {}
 CACHE_ANTES = {}
 CACHE_SALIO = {}
+ESTADOS_PREVIOS_RAIDS = {}     # Guarda el estado anterior ("muerto" / "vivo") de cada raid para el servicio SALIO
+TIEMPOS_CAMBIO_VIVO = {}       # Guarda el timestamp exacto en que un raid pasó a "vivo"
 ULTIMO_RESET_CACHE_DIA = None  
 
 TEMA_ACTIVO = "morado"  # Puede cambiarse a "rojo", etc.
@@ -129,7 +132,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tipo_servicio):
     return None
 
 def limpiar_memoria_cache_diaria():
-    global ULTIMO_RESET_CACHE_DIA, CACHE_PUBLICAR_RAIDS, CACHE_ANTES, CACHE_SALIO
+    global ULTIMO_RESET_CACHE_DIA, CACHE_PUBLICAR_RAIDS, CACHE_ANTES, CACHE_SALIO, ESTADOS_PREVIOS_RAIDS, TIEMPOS_CAMBIO_VIVO
     ahora_arg = datetime.now(ZONA_ARGENTINA)
     hoy_str = ahora_arg.strftime("%Y-%m-%d")
     
@@ -137,8 +140,34 @@ def limpiar_memoria_cache_diaria():
         CACHE_PUBLICAR_RAIDS.clear()
         CACHE_ANTES.clear()
         CACHE_SALIO.clear()
+        ESTADOS_PREVIOS_RAIDS.clear()
+        TIEMPOS_CAMBIO_VIVO.clear()
         ULTIMO_RESET_CACHE_DIA = hoy_str
         logger.info("🧹 Memoria caché de los 3 servicios limpiada exitosamente a las 04:00 AM.")
+
+async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, es_epico=False):
+    """Envía la imagen a ENVIAR_MENSAJE_CHANNEL_ID y, si es épico, también a MENSAJE_CLAN_CHANNEL_ID."""
+    canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+    canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+    
+    canales_destino = []
+    if canal_principal_id:
+        c1 = bot_instance.get_channel(canal_principal_id)
+        if c1:
+            canales_destino.append(c1)
+            
+    if es_epico and canal_clan_id:
+        c2 = bot_instance.get_channel(canal_clan_id)
+        if c2 and c2 not in canales_destino:
+            canales_destino.append(c2)
+
+    for canal in canales_destino:
+        try:
+            if os.path.exists(ruta_imagen):
+                with open(ruta_imagen, "rb") as binary:
+                    await canal.send(file=discord.File(binary, filename=nombre_archivo_discord))
+        except Exception as e:
+            logger.error(f"❌ Error al enviar imagen de SALIO al canal {canal.id}: {e}")
 
 # ==========================================
 # SERVICIO 1: PUBLICAR_RAIDS
@@ -361,41 +390,96 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 3: PUBLICAR_RAIDS_SALIO
+# SERVICIO 3: PUBLICAR_RAIDS_SALIO (Actualizado)
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
-            canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-            if canal_id and os.path.exists(ruta_json):
+            limpiar_memoria_cache_diaria()
+            if os.path.exists(ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                raid_60_plus = data.get("raid_60_plus", [])
-                raid_60_menos = data.get("raid_60_menos", [])
+                # Tabla objetivo solicitada: vivo_o_muerto
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
+                ahora_arg = datetime.now(ZONA_ARGENTINA)
+                hoy_str = ahora_arg.strftime("%Y-%m-%d")
 
-                catalogo = obtener_catalogo_imagenes_raid()
-                channel = bot_instance.get_channel(canal_id)
-                fecha_hoy = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
-
-                if channel and raid_60_plus:
-                    for item in raid_60_plus:
+                if vivo_o_muerto:
+                    for item in vivo_o_muerto:
                         nombre = str(item.get("nombre", "")).strip()
+                        
+                        # 1. Consulta primero el filtro específico de este servicio
                         if FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre, "no") != "si":
                             continue
 
-                        clave_cache = f"{nombre}_{fecha_hoy}"
-                        if CACHE_SALIO.get(clave_cache):
+                        # Obtener el estado actual en el JSON (normalizado a minúsculas)
+                        estado_actual_json = str(item.get("estado") or item.get("status") or item.get("vivo_o_muerto") or "").strip().lower()
+                        if not estado_actual_json:
                             continue
 
-                        ruta_img = obtener_imagen_raid(catalogo, nombre, "PUBLICAR_RAIDS_SALIO")
-                        if ruta_img and os.path.exists(ruta_img):
-                            with open(ruta_img, "rb") as binary:
-                                await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_salio.png"))
-                                CACHE_SALIO[clave_cache] = True
-                                logger.info(f"✅ [SALIO] Aviso de salida enviado para '{nombre}'.")
-                                await asyncio.sleep(1.5)
+                        estado_anterior = ESTADOS_PREVIOS_RAIDS.get(nombre, "muerto")
+
+                        # Detectar cuando pasa de "muerto" a "vivo"
+                        if estado_anterior == "muerto" and estado_actual_json == "vivo":
+                            ESTADOS_PREVIOS_RAIDS[nombre] = "vivo"
+                            TIEMPOS_CAMBIO_VIVO[nombre] = ahora_arg
+                            logger.info(f"⚡ [SALIO] Cambio detectado: '{nombre}' pasó de MUERTO a VIVO.")
+
+                            # Regla A: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche (Terminación 2)
+                            if nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
+                                sufijo = "2"
+                                clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
+                                
+                                if not CACHE_SALIO.get(clave_cache):
+                                    nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                    ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+
+                                    if os.path.exists(ruta_img):
+                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
+                                        CACHE_SALIO[clave_cache] = True
+                                        logger.info(f"✅ [SALIO] Publicado épico inmediato '{nombre}' (Sufijo {sufijo}).")
+                                        await asyncio.sleep(1.0)
+
+                            # Regla B: Valakas, Antharas, Fafureon (Terminación 4, justo al cambiar a vivo)
+                            elif nombre in ["Valakas", "Antharas", "Fafureon"]:
+                                sufijo = "4"
+                                clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
+                                
+                                if not CACHE_SALIO.get(clave_cache):
+                                    nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                    ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+
+                                    if os.path.exists(ruta_img):
+                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
+                                        CACHE_SALIO[clave_cache] = True
+                                        logger.info(f"✅ [SALIO] Publicado gran dragón inmediato '{nombre}' (Sufijo {sufijo}).")
+                                        await asyncio.sleep(1.0)
+
+                        # Si en el JSON se marca como muerto, actualizar memoria para futuros ciclos
+                        if estado_actual_json == "muerto":
+                            ESTADOS_PREVIOS_RAIDS[nombre] = "muerto"
+
+                        # Regla C: Valakas y Antharas a los 35 minutos exactos después de pasar a vivo (Terminación 5) con margen de 5 min
+                        if nombre in ["Valakas", "Antharas"] and ESTADOS_PREVIOS_RAIDS.get(nombre) == "vivo":
+                            tiempo_cambio = TIEMPOS_CAMBIO_VIVO.get(nombre)
+                            if tiempo_cambio:
+                                tiempo_objetivo_35m = tiempo_cambio + timedelta(minutes=35)
+                                
+                                if tiempo_objetivo_35m <= ahora_arg < tiempo_objetivo_35m + timedelta(minutes=5):
+                                    sufijo = "5"
+                                    clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}_35m"
+                                    
+                                    if not CACHE_SALIO.get(clave_cache):
+                                        nombre_archivo = f"{nombre.lower()}{sufijo}.png"
+                                        ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+
+                                        if os.path.exists(ruta_img):
+                                            await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
+                                            CACHE_SALIO[clave_cache] = True
+                                            logger.info(f"✅ [SALIO] Publicado '{nombre}' a los 35 minutos (Sufijo {sufijo}).")
+                                            await asyncio.sleep(1.0)
+
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids_salio: {e}")
 
