@@ -141,7 +141,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tipo_servicio):
     return None
 
 def limpiar_memoria_cache_diaria():
-    global ULTIMO_RESET_CACHE_DIA, CACHE_PUBLICAR_RAIDS, CACHE_ANTES, CACHE_SALIO, ESTADOS_PREVIOS_RAIDS, TIEMPOS_CAMBIO_VIVO
+    global ULTIMO_RESET_CACHE_DIA, CACHE_PUBLICAR_RAIDS, CACHE_ANTES, CACHE_SALIO, ESTADOS_PREVIOS_RAIDS, TIEMPOS_CAMBIO_VIVO, CACHE_SALIO_35M, CACHE_SALIO_DUPLICADOS
     ahora_arg = datetime.now(ZONA_ARGENTINA)
     hoy_str = ahora_arg.strftime("%Y-%m-%d")
     
@@ -149,15 +149,24 @@ def limpiar_memoria_cache_diaria():
         CACHE_PUBLICAR_RAIDS.clear()
         CACHE_ANTES.clear()
         CACHE_SALIO.clear()
+        if 'CACHE_SALIO_35M' in globals():
+            CACHE_SALIO_35M.clear()
+        if 'CACHE_SALIO_DUPLICADOS' in globals():
+            CACHE_SALIO_DUPLICADOS.clear()
         ESTADOS_PREVIOS_RAIDS.clear()
         TIEMPOS_CAMBIO_VIVO.clear()
         ULTIMO_RESET_CACHE_DIA = hoy_str
-        logger.info("🧹 Memoria caché de los 3 servicios limpiada exitosamente a las 04:00 AM.")
+        logger.info("🧹 Memoria caché de los servicios limpiada exitosamente a las 04:00 AM.")
 
-async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, es_epico=False):
-    """Envía la imagen a ENVIAR_MENSAJE_CHANNEL_ID y, si es épico, también a MENSAJE_CLAN_CHANNEL_ID."""
+async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, nombre_raid=""):
+    """Envía la imagen a ENVIAR_MENSAJE_CHANNEL_ID y, si corresponde, duplicada a MENSAJE_CLAN_CHANNEL_ID."""
     canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
     canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+    
+    raids_con_duplicado = [
+        "Baium", "Zaken", "Core", "Orfen", "Queen Ant", 
+        "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"
+    ]
     
     canales_destino = []
     if canal_principal_id:
@@ -165,7 +174,7 @@ async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_disco
         if c1:
             canales_destino.append(c1)
             
-    if es_epico and canal_clan_id:
+    if nombre_raid in raids_con_duplicado and canal_clan_id:
         c2 = bot_instance.get_channel(canal_clan_id)
         if c2 and c2 not in canales_destino:
             canales_destino.append(c2)
@@ -320,7 +329,6 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                     for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
                         
-                        # Validación del filtro general o por defecto de 60+
                         es_60_plus = item in raid_60_plus
                         if es_60_plus and FILTRO_PUBLICAR_RAIDS_ANTES.get("otros_60_mas", "no") != "si":
                             if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
@@ -409,6 +417,12 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
+# CACHÉS ESPECÍFICAS PARA EL SERVICIO SALIO
+# ==========================================
+CACHE_SALIO_35M = {}
+CACHE_SALIO_DUPLICADOS = {}
+
+# ==========================================
 # SERVICIO 3: PUBLICAR_RAIDS_SALIO
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
@@ -451,7 +465,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
-                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
+                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                         CACHE_SALIO[clave_cache] = True
                                         logger.info(f"✅ [SALIO] Publicado épico inmediato '{nombre}' (Sufijo {sufijo}).")
                                         await asyncio.sleep(1.0)
@@ -465,7 +479,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                     ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                     if os.path.exists(ruta_img):
-                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
+                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                         CACHE_SALIO[clave_cache] = True
                                         logger.info(f"✅ [SALIO] Publicado gran dragón inmediato '{nombre}' (Sufijo {sufijo}).")
                                         await asyncio.sleep(1.0)
@@ -480,15 +494,15 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                 
                                 if tiempo_objetivo_35m <= ahora_arg < tiempo_objetivo_35m + timedelta(minutes=5):
                                     sufijo = "5"
-                                    clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}_35m"
+                                    clave_cache_35m = f"{nombre}_{hoy_str}_sufijo_{sufijo}_35m"
                                     
-                                    if not CACHE_SALIO.get(clave_cache):
+                                    if not CACHE_SALIO_35M.get(clave_cache_35m):
                                         nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
                                         ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
                                         if os.path.exists(ruta_img):
-                                            await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", es_epico=True)
-                                            CACHE_SALIO[clave_cache] = True
+                                            await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
+                                            CACHE_SALIO_35M[clave_cache_35m] = True
                                             logger.info(f"✅ [SALIO] Publicado '{nombre}' a los 35 minutos (Sufijo {sufijo}).")
                                             await asyncio.sleep(1.0)
 
