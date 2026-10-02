@@ -156,14 +156,30 @@ def obtener_catalogo_imagenes_raid():
 def obtener_imagen_raid(catalogo, nombre_base_raid, tema=TEMA_ACTIVO, tipo_filtro="PUBLICAR_RAIDS"):
     nombre_limpio = nombre_base_raid.strip().lower()
     
-    rutas_candidatas = [
+    # Ajustar rutas según el tipo de filtro si es necesario buscar plantillas específicas (ej. carpeta antes, salio, etc.)
+    rutas_candidatas = []
+    
+    if tipo_filtro == "PUBLICAR_RAIDS_ANTES":
+        rutas_candidatas = [
+            f"antes/{nombre_limpio}.png",
+            f"{tema}/antes/{nombre_limpio}.png",
+            f"{tema}/raid/antes/{nombre_limpio}.png"
+        ]
+    elif tipo_filtro == "PUBLICAR_RAIDS_SALIO":
+        rutas_candidatas = [
+            f"salio/{nombre_limpio}.png",
+            f"{tema}/salio/{nombre_limpio}.png",
+            f"{tema}/raid/salio/{nombre_limpio}.png"
+        ]
+
+    # Rutas por defecto o generales
+    rutas_candidatas.extend([
         f"{tema}/raid/{nombre_limpio}.png",
         f"{tema}/{nombre_limpio}.png",
         f"raid/{tema}/raid/{nombre_limpio}.png",
         f"raid/{tema}/{nombre_limpio}.png",
-        f"antes/{nombre_limpio}.png",
         f"{nombre_limpio}.png"
-    ]
+    ])
 
     for sufijo in ['h', 'm']:
         rutas_candidatas.insert(0, f"{tema}/raid/{nombre_limpio}{sufijo}.png")
@@ -231,7 +247,7 @@ async def enviar_prueba_calibracion(bot_instance):
 
 
 async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_segundos=30):
-    """Procesa los ciclos regulares de raids leyendo del archivo JSON provisto de forma autónoma."""
+    """Procesa los ciclos de raids. PUBLICAR_RAIDS estampa hora; ANTES y SALIO envían la plantilla limpia sin hora."""
     global HISTORIAL_ENVIADOS_CACHE
     try:
         canal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
@@ -245,6 +261,15 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
         if not registros:
             return
 
+        # Mapear el tipo_filtro al diccionario correspondiente
+        diccionarios_filtros = {
+            "PUBLICAR_RAIDS": FILTRO_PUBLICAR_RAIDS,
+            "PUBLICAR_RAIDS_ANTES": FILTRO_PUBLICAR_RAIDS_ANTES,
+            "PUBLICAR_RAIDS_SALIO": FILTRO_PUBLICAR_RAIDS_SALIO,
+            "super_epicos": FILTRO_PUBLICAR_RAIDS
+        }
+        filtro_actual = diccionarios_filtros.get(tipo_filtro, FILTRO_PUBLICAR_RAIDS)
+
         catalogo_raids = obtener_catalogo_imagenes_raid()
         channel_destino = bot_instance.get_channel(canal_id)
         if not channel_destino:
@@ -252,50 +277,73 @@ async def procesar_ciclo_raids(bot_instance, ruta_json, tipo_filtro, intervalo_s
 
         for item in registros:
             nombre = str(item.get("nombre", "")).strip()
-            tiempo_str = str(item.get("tiempo_str", "")).strip()
             
-            if not nombre or not tiempo_str or tiempo_str in ["-", "None"]:
+            if not nombre:
                 continue
 
-            # Clave única para evitar duplicados en el mismo ciclo diario
-            clave_cache = f"{nombre}_{tiempo_str}_{tipo_filtro}"
+            # Validar si el raid está permitido en este filtro específico
+            permitido = "no"
+            for k, v in filtro_actual.items():
+                if k.lower() == nombre.lower():
+                    permitido = v
+                    break
+            
+            if permitido != "si":
+                continue
+
+            # Definir clave única para la caché dependiendo si usa hora o no
+            if tipo_filtro == "PUBLICAR_RAIDS":
+                tiempo_str = str(item.get("tiempo_str", "")).strip()
+                if not tiempo_str or tiempo_str in ["-", "None", ""]:
+                    continue
+                clave_cache = f"{nombre}_{tiempo_str}_{tipo_filtro}"
+            else:
+                # Para ANTES, SALIO o super_epicos que no llevan hora, se valida por ciclo diario o nombre único
+                fecha_hoy_str = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
+                clave_cache = f"{nombre}_{fecha_hoy_str}_{tipo_filtro}"
+
             if HISTORIAL_ENVIADOS_CACHE.get(clave_cache):
                 continue
 
-            # Buscar imagen del raid correspondiente
+            # Buscar imagen del raid correspondiente según el filtro
             ruta_imagen = obtener_imagen_raid(catalogo_raids, nombre, tema=TEMA_ACTIVO, tipo_filtro=tipo_filtro)
             
             if ruta_imagen and os.path.exists(ruta_imagen):
                 try:
                     img = Image.open(ruta_imagen).convert("RGBA")
                     
-                    # Estampar la hora real que viene del JSON
-                    estampar_hora_con_imagenes(
-                        imagen_base=img,
-                        texto_hora=tiempo_str,
-                        x_inicial=POS_X,
-                        y_inicial=POS_Y,
-                        altura_deseada=95,
-                        espacio_entre_digitos=4
-                    )
+                    # SOLO PUBLICAR_RAIDS lleva hora estampada
+                    if tipo_filtro == "PUBLICAR_RAIDS":
+                        estampar_hora_con_imagenes(
+                            imagen_base=img,
+                            texto_hora=tiempo_str,
+                            x_inicial=POS_X,
+                            y_inicial=POS_Y,
+                            altura_deseada=95,
+                            espacio_entre_digitos=4
+                        )
+                        nombre_archivo = f"raid_{nombre.lower()}_{tiempo_str.replace(':', '')}.png"
+                    else:
+                        # PUBLICAR_RAIDS_ANTES y PUBLICAR_RAIDS_SALIO van limpios sin hora
+                        nombre_archivo = f"raid_{nombre.lower()}_{tipo_filtro.lower()}.png"
                     
                     with io.BytesIO() as image_binary:
                         img.convert("RGB").save(image_binary, "PNG")
                         image_binary.seek(0)
                         
                         await channel_destino.send(
-                            file=discord.File(image_binary, filename=f"raid_{nombre.lower()}_{tiempo_str.replace(':', '')}.png")
+                            file=discord.File(image_binary, filename=nombre_archivo)
                         )
                         
                         # Registrar en caché para evitar spam repetido
                         HISTORIAL_ENVIADOS_CACHE[clave_cache] = True
-                        logger.info(f"✅ [AUTÓNOMO] Raid '{nombre}' enviado con éxito a las {tiempo_str}.")
+                        logger.info(f"✅ [{tipo_filtro}] Plantilla de Raid '{nombre}' enviada con éxito.")
                         
                         # Pequeña pausa para no saturar la API de Discord
                         await asyncio.sleep(1.5)
                         
                 except Exception as e:
-                    logger.error(f"❌ Error al estampar/enviar el raid {nombre}: {e}")
+                    logger.error(f"❌ Error al procesar/enviar el raid {nombre} para {tipo_filtro}: {e}")
 
     except Exception as e:
         logger.error(f"❌ Error en procesar_ciclo_raids para {tipo_filtro}: {e}")
