@@ -205,7 +205,7 @@ async def enviar_prueba_calibracion(bot_instance):
     if ruta_imagen and os.path.exists(ruta_imagen):
         try:
             img = Image.open(ruta_imagen).convert("RGBA")
-            texto_hora = "22:30"
+            texto_hora = "16:45"
             
             estampar_hora_con_imagenes(
                 imagen_base=img,
