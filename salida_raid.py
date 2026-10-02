@@ -204,13 +204,13 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                             dt_mismo_dia_10 = dt_raid_ajustado.replace(hour=10, minute=0, second=0, microsecond=0)
                             dt_mismo_dia_18 = dt_raid_ajustado.replace(hour=18, minute=0, second=0, microsecond=0)
 
-                            if dt_dia_anterior_10 <= ahora_arg < dt_dia_anterior_10 + timedelta(minutes=3):
+                            if dt_dia_anterior_10 <= ahora_arg < dt_dia_anterior_10 + timedelta(minutes=5):
                                 tipo_ventana = "dia_anterior_10m"
                                 sufijo_imagen = "m"
-                            elif dt_mismo_dia_10 <= ahora_arg < dt_mismo_dia_10 + timedelta(minutes=3):
+                            elif dt_mismo_dia_10 <= ahora_arg < dt_mismo_dia_10 + timedelta(minutes=5):
                                 tipo_ventana = "mismo_dia_10h"
                                 sufijo_imagen = "h"
-                            elif dt_mismo_dia_18 <= ahora_arg < dt_mismo_dia_18 + timedelta(minutes=3):
+                            elif dt_mismo_dia_18 <= ahora_arg < dt_mismo_dia_18 + timedelta(minutes=5):
                                 tipo_ventana = "mismo_dia_18h"
                                 sufijo_imagen = "h"
                         else:
