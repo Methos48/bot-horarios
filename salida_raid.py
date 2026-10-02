@@ -4,7 +4,7 @@ import json
 import io
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image
 import config
@@ -152,15 +152,21 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                # Lectura de las 3 tablas del JSON de forma autónoma
                 raid_60_plus = data.get("raid_60_plus", [])
                 raid_60_menos = data.get("raid_60_menos", [])
                 vivo_o_muerto = data.get("vivo_o_muerto", [])
 
+                todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
+
                 catalogo = obtener_catalogo_imagenes_raid()
                 channel = bot_instance.get_channel(canal_id)
 
-                if channel and raid_60_plus:
-                    for item in raid_60_plus:
+                ahora_arg = datetime.now(ZONA_ARGENTINA)
+                hoy_str = ahora_arg.strftime("%Y-%m-%d")
+
+                if channel and todos_los_jefes:
+                    for item in todos_los_jefes:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS.get(nombre, "no") != "si":
                             continue
@@ -170,29 +176,78 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                             continue
 
                         match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                        tiempo_str = match_hora.group(0) if match_hora else ""
-                        if not tiempo_str:
+                        if not match_hora:
+                            continue
+                        
+                        hora_raid_str = match_hora.group(0)
+                        
+                        fecha_raid_str = hoy_str
+                        match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
+                        if match_fecha:
+                            fecha_raid_str = match_fecha.group(0)
+
+                        try:
+                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                        except ValueError:
                             continue
 
-                        hora_actual_str = datetime.now(ZONA_ARGENTINA).strftime("%H:%M")
-                        if hora_actual_str != tiempo_str:
+                        sufijo_imagen = None
+                        tipo_ventana = None
+                        texto_a_estampar = hora_raid_str
+
+                        # Lógica de Excepciones Especiales (Valakas, Antharas, Fafureon)
+                        if nombre in ["Valakas", "Antharas", "Fafureon"]:
+                            dt_raid_ajustado = dt_raid - timedelta(minutes=30)
+                            texto_a_estampar = dt_raid_ajustado.strftime("%H:%M")
+                            
+                            dt_dia_anterior_10 = (dt_raid_ajustado - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+                            dt_mismo_dia_10 = dt_raid_ajustado.replace(hour=10, minute=0, second=0, microsecond=0)
+                            dt_mismo_dia_18 = dt_raid_ajustado.replace(hour=18, minute=0, second=0, microsecond=0)
+
+                            if dt_dia_anterior_10 <= ahora_arg < dt_dia_anterior_10 + timedelta(minutes=3):
+                                tipo_ventana = "dia_anterior_10m"
+                                sufijo_imagen = "m"
+                            elif dt_mismo_dia_10 <= ahora_arg < dt_mismo_dia_10 + timedelta(minutes=3):
+                                tipo_ventana = "mismo_dia_10h"
+                                sufijo_imagen = "h"
+                            elif dt_mismo_dia_18 <= ahora_arg < dt_mismo_dia_18 + timedelta(minutes=3):
+                                tipo_ventana = "mismo_dia_18h"
+                                sufijo_imagen = "h"
+                        else:
+                            # Raids Normales (entre 16:00 y 23:00): se publican el mismo día a las 14:00 (margen de 3 min)
+                            if 16 <= dt_raid.hour <= 23:
+                                dt_publicacion = dt_raid.replace(hour=14, minute=0, second=0, microsecond=0)
+                                if dt_publicacion <= ahora_arg < dt_publicacion + timedelta(minutes=3):
+                                    tipo_ventana = "normal_1400"
+                                    sufijo_imagen = hora_raid_str.replace(':', '')
+
+                        if not tipo_ventana or not sufijo_imagen:
                             continue
 
-                        clave_cache = f"{nombre}_{tiempo_str}"
+                        clave_cache = f"{nombre}_{fecha_raid_str}_{tipo_ventana}"
                         if CACHE_PUBLICAR_RAIDS.get(clave_cache):
                             continue
 
-                        ruta_img = obtener_imagen_raid(catalogo, nombre, "PUBLICAR_RAIDS")
+                        # Rutas dinámicas por tema
+                        nombre_archivo_busqueda = f"{nombre.lower()}{sufijo_imagen}.png"
+                        ruta_personalizada_tema = f"imagen/raid/{TEMA_ACTIVO}/raid/{nombre_archivo_busqueda}"
+                        
+                        ruta_img = None
+                        if os.path.exists(ruta_personalizada_tema):
+                            ruta_img = ruta_personalizada_tema
+                        else:
+                            ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo_imagen}", "PUBLICAR_RAIDS")
+
                         if ruta_img and os.path.exists(ruta_img):
                             img = Image.open(ruta_img).convert("RGBA")
-                            estampar_hora_con_imagenes(img, tiempo_str, POS_X, POS_Y, altura_deseada=95, espacio_entre_digitos=4)
+                            estampar_hora_con_imagenes(img, texto_a_estampar, POS_X, POS_Y, altura_deseada=95, espacio_entre_digitos=4)
                             
                             with io.BytesIO() as binary:
                                 img.convert("RGB").save(binary, "PNG")
                                 binary.seek(0)
-                                await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_{tiempo_str.replace(':', '')}.png"))
+                                await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_{sufijo_imagen}.png"))
                                 CACHE_PUBLICAR_RAIDS[clave_cache] = True
-                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con hora {tiempo_str}.")
+                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito (Ventana: {tipo_ventana}).")
                                 await asyncio.sleep(1.5)
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids: {e}")
@@ -288,7 +343,6 @@ async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_acti
     logger.info("🔄 Iniciando los 3 servicios independientes de Raids en paralelo...")
     await bot_instance.wait_until_ready()
 
-    # Lanzamos cada servicio de forma totalmente independiente como tareas concurrentes
     asyncio.create_task(servicio_publicar_raids(bot_instance, ruta_json))
     asyncio.create_task(servicio_publicar_raids_antes(bot_instance, ruta_json))
     asyncio.create_task(servicio_publicar_raids_salio(bot_instance, ruta_json))
