@@ -38,8 +38,8 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # ==========================================
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
-POS_X = 50
-POS_Y = 580
+POS_X = 60
+POS_Y = 600
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
@@ -90,7 +90,7 @@ MAPEO_NUMEROS = {
     ':': NUMERO_DOS_PUNTOS
 }
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=210, espacio_entre_digitos=10):
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=250, espacio_entre_digitos=12):
     """
     Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
     la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
