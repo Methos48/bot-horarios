@@ -26,6 +26,8 @@ json_lock = asyncio.Lock()
 CACHE_PUBLICAR_RAIDS = {}
 CACHE_ANTES = {}
 CACHE_SALIO = {}
+CACHE_SALIO_35M = {}
+CACHE_SALIO_DUPLICADOS = {}
 ESTADOS_PREVIOS_RAIDS = {}      # Guarda el estado anterior ("muerto" / "vivo") de cada raid para el servicio SALIO
 TIEMPOS_CAMBIO_VIVO = {}        # Guarda el timestamp exacto en que un raid pasó a "vivo"
 ULTIMO_RESET_CACHE_DIA = None  
@@ -149,10 +151,8 @@ def limpiar_memoria_cache_diaria():
         CACHE_PUBLICAR_RAIDS.clear()
         CACHE_ANTES.clear()
         CACHE_SALIO.clear()
-        if 'CACHE_SALIO_35M' in globals():
-            CACHE_SALIO_35M.clear()
-        if 'CACHE_SALIO_DUPLICADOS' in globals():
-            CACHE_SALIO_DUPLICADOS.clear()
+        CACHE_SALIO_35M.clear()
+        CACHE_SALIO_DUPLICADOS.clear()
         ESTADOS_PREVIOS_RAIDS.clear()
         TIEMPOS_CAMBIO_VIVO.clear()
         ULTIMO_RESET_CACHE_DIA = hoy_str
@@ -299,7 +299,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES (ENVIAR_MENSAJE_CHANNEL_ID + MENSAJE_CLAN_CHANNEL_ID para la lista indicada)
+# SERVICIO 2: PUBLICAR_RAIDS_ANTES
 # ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -417,13 +417,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# CACHÉS ESPECÍFICAS PARA EL SERVICIO SALIO
-# ==========================================
-CACHE_SALIO_35M = {}
-CACHE_SALIO_DUPLICADOS = {}
-
-# ==========================================
-# SERVICIO 3: PUBLICAR_RAIDS_SALIO
+# SERVICIO 3: PUBLICAR_RAIDS_SALIO (MONITOREO VIVO/MUERTO)
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -451,11 +445,13 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
 
                         estado_anterior = ESTADOS_PREVIOS_RAIDS.get(nombre, "muerto")
 
+                        # Detección de transición de MUERTO a VIVO
                         if estado_anterior == "muerto" and estado_actual_json == "vivo":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "vivo"
                             TIEMPOS_CAMBIO_VIVO[nombre] = ahora_arg
                             logger.info(f"⚡ [SALIO] Cambio detectado: '{nombre}' pasó de MUERTO a VIVO.")
 
+                            # Grupo 1: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche -> Terminal 2
                             if nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
                                 sufijo = "2"
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
@@ -470,6 +466,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                                         logger.info(f"✅ [SALIO] Publicado épico inmediato '{nombre}' (Sufijo {sufijo}).")
                                         await asyncio.sleep(1.0)
 
+                            # Grupo 2: Valakas, Antharas, Fafureon -> Terminal 4 al pasar a vivo
                             elif nombre in ["Valakas", "Antharas", "Fafureon"]:
                                 sufijo = "4"
                                 clave_cache = f"{nombre}_{hoy_str}_sufijo_{sufijo}"
@@ -487,6 +484,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                         if estado_actual_json == "muerto":
                             ESTADOS_PREVIOS_RAIDS[nombre] = "muerto"
 
+                        # Valakas y Antharas: 35 minutos después de pasar a vivo -> Terminal 5 (con margen de 5 min)
                         if nombre in ["Valakas", "Antharas"] and ESTADOS_PREVIOS_RAIDS.get(nombre) == "vivo":
                             tiempo_cambio = TIEMPOS_CAMBIO_VIVO.get(nombre)
                             if tiempo_cambio:
