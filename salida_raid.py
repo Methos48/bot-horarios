@@ -7,7 +7,6 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from PIL import Image
-import discord
 import config
 
 from config import (
@@ -133,7 +132,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid, tipo_servicio):
 
 
 # ==========================================
-# SERVICIO 1: PUBLICAR_RAIDS (Independiente - Valida hora exacta y estampa)
+# SERVICIO 1: PUBLICAR_RAIDS (Independiente - Acceso a las 3 tablas)
 # ==========================================
 async def servicio_publicar_raids(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -143,12 +142,17 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                registros = data.get("raid_60_plus", []) or data.get("vivo_o_muerto", [])
+                # Acceso independiente y disponible a las 3 tablas del JSON
+                raid_60_plus = data.get("raid_60_plus", [])
+                raid_60_menos = data.get("raid_60_menos", [])
+                vivo_o_muerto = data.get("vivo_o_muerto", [])
+
                 catalogo = obtener_catalogo_imagenes_raid()
                 channel = bot_instance.get_channel(canal_id)
 
-                if channel and registros:
-                    for item in registros:
+                # Por ahora, procesamos raid_60_plus (las otras tablas quedan disponibles en memoria para su lógica futura)
+                if channel and raid_60_plus:
+                    for item in raid_60_plus:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS.get(nombre, "no") != "si":
                             continue
@@ -190,7 +194,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
 
 
 # ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Independiente - Sin hora, ciclo diario)
+# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Independiente - Acceso a las 3 tablas)
 # ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -200,13 +204,17 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                registros = data.get("raid_60_plus", []) or data.get("vivo_o_muerto", [])
+                # Acceso independiente y disponible a las 3 tablas del JSON
+                raid_60_plus = data.get("raid_60_plus", [])
+                raid_60_menos = data.get("raid_60_menos", [])
+                vivo_o_muerto = data.get("vivo_o_muerto", [])
+
                 catalogo = obtener_catalogo_imagenes_raid()
                 channel = bot_instance.get_channel(canal_id)
                 fecha_hoy = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
 
-                if channel and registros:
-                    for item in registros:
+                if channel and raid_60_plus:
+                    for item in raid_60_plus:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
                             continue
@@ -229,7 +237,7 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
 
 
 # ==========================================
-# SERVICIO 3: PUBLICAR_RAIDS_SALIO (Independiente - Sin hora, ciclo diario)
+# SERVICIO 3: PUBLICAR_RAIDS_SALIO (Independiente - Acceso a las 3 tablas)
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json):
     while not bot_instance.is_closed():
@@ -239,13 +247,17 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                 with open(ruta_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                registros = data.get("raid_60_plus", []) or data.get("vivo_o_muerto", [])
+                # Acceso independiente y disponible a las 3 tablas del JSON
+                raid_60_plus = data.get("raid_60_plus", [])
+                raid_60_menos = data.get("raid_60_menos", [])
+                vivo_o_muerto = data.get("vivo_o_muerto", [])
+
                 catalogo = obtener_catalogo_imagenes_raid()
                 channel = bot_instance.get_channel(canal_id)
                 fecha_hoy = datetime.now(ZONA_ARGENTINA).strftime("%Y-%m-%d")
 
-                if channel and registros:
-                    for item in registros:
+                if channel and raid_60_plus:
+                    for item in raid_60_plus:
                         nombre = str(item.get("nombre", "")).strip()
                         if FILTRO_PUBLICAR_RAIDS_SALIO.get(nombre, "no") != "si":
                             continue
