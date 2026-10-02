@@ -412,6 +412,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
         try:
             limpiar_memoria_cache_diaria()
             if os.path.exists(ruta_json):
+                # 🔒 LOCK APLICADO TAMBIÉN AQUÍ PARA EVITAR JSONDecodeError
                 async with json_lock:
                     with open(ruta_json, "r", encoding="utf-8") as f:
                         data = json.load(f)
