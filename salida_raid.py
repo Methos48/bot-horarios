@@ -39,8 +39,8 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
 # Ajustadas para que la hora quede grande y abajo del texto "ARMAMOS" como en tu referencia
-POS_X = 250
-POS_Y = 610
+POS_X = 50
+POS_Y = 580
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
@@ -91,7 +91,7 @@ MAPEO_NUMEROS = {
     ':': NUMERO_DOS_PUNTOS
 }
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=95, espacio_entre_digitos=4):
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=130, espacio_entre_digitos=6):
     """
     Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
     la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
