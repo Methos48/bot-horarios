@@ -38,9 +38,8 @@ DIR_TEXTURA = getattr(config, "DIR_TEXTURA", None)
 # ==========================================
 # POSICIÓN MANUAL DE LA HORA (Modifica aquí para calibrar X e Y)
 # ==========================================
-# Ajustadas para que la hora quede grande y abajo del texto "ARMAMOS" como en tu referencia
 POS_X = 50
-POS_Y = 580
+POS_Y = 620
 
 JEFS_ESPECIALES_RANDOM = {
     "core", "orfen", "baium", "zaken", "freya", 
@@ -91,7 +90,7 @@ MAPEO_NUMEROS = {
     ':': NUMERO_DOS_PUNTOS
 }
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=130, espacio_entre_digitos=6):
+def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=150, espacio_entre_digitos=8):
     """
     Recorre cada carácter de 'texto_hora', redimensiona su imagen manteniendo 
     la proporción según 'altura_deseada' y la pega sobre la imagen_base del raid.
@@ -104,16 +103,27 @@ def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, al
         if ruta_img_num and os.path.exists(ruta_img_num):
             try:
                 img_digito = Image.open(ruta_img_num).convert("RGBA")
-                
-                # Calcular el ancho proporcional basado en la altura deseada grande
                 w_original, h_original = img_digito.size
-                nuevo_ancho = int(w_original * (altura_deseada / h_original))
                 
-                # Redimensionar la imagen del dígito/símbolo suavemente
-                img_digito = img_digito.resize((nuevo_ancho, altura_deseada), Image.Resampling.LANCZOS)
-                
-                # Pegar el dígito usando su canal alfa
-                imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
+                # --- AJUSTE ESPECIAL PARA LOS DOS PUNTOS (:) ---
+                if caracter == ':':
+                    altura_actual = int(altura_deseada * 0.75)  # 75% del tamaño de los números
+                    nuevo_ancho = int(w_original * (altura_actual / h_original))
+                    
+                    img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
+                    
+                    # Centrar verticalmente los dos puntos respecto a los números
+                    offset_y = y_inicial + int((altura_deseada - altura_actual) / 2)
+                    
+                    imagen_base.paste(img_digito, (cursor_x, offset_y), img_digito)
+                else:
+                    # Números normales
+                    altura_actual = altura_deseada
+                    nuevo_ancho = int(w_original * (altura_actual / h_original))
+                    
+                    img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
+                    
+                    imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
                 
                 # Avanzar el cursor horizontalmente
                 cursor_x += nuevo_ancho + espacio_entre_digitos
@@ -202,7 +212,7 @@ async def enviar_prueba_calibracion(bot_instance):
                 texto_hora=texto_hora,
                 x_inicial=POS_X,
                 y_inicial=POS_Y,
-                altura_deseada=95,  # Tamaño grande equivalente a la segunda imagen
+                altura_deseada=95,  
                 espacio_entre_digitos=4
             )
             
