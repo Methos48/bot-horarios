@@ -155,7 +155,6 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                 channel = bot_instance.get_channel(canal_id)
 
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
-                hoy_str = ahora_arg.strftime("%Y-%m-%d")
 
                 if channel and todos_los_jefes:
                     for item in todos_los_jefes:
@@ -167,18 +166,13 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                             continue
 
-                        # Parseo formato DD-MM-YYYY HH:MM del JSON (Día-Mes-Año)
+                        # Parseo estricto formato DD-MM-YYYY HH:MM del JSON
                         match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
                         if not match_dt:
-                            match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                            if not match_hora:
-                                continue
-                            hora_raid_str = match_hora.group(0)
-                            fecha_raid_str = hoy_str
-                        else:
-                            dia, mes, anio, hora_raid_str = match_dt.groups()
-                            # Reordenamos a YYYY-MM-DD para que datetime lo procese y compare bien
-                            fecha_raid_str = f"{anio}-{mes}-{dia}"
+                            continue
+
+                        dia, mes, anio, hora_raid_str = match_dt.groups()
+                        fecha_raid_str = f"{anio}-{mes}-{dia}"
 
                         try:
                             dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
@@ -285,18 +279,13 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                         if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                             continue
 
-                        # Parseo formato DD-MM-YYYY HH:MM del JSON (Día-Mes-Año)
+                        # Parseo estricto formato DD-MM-YYYY HH:MM del JSON
                         match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
                         if not match_dt:
-                            match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                            if not match_hora:
-                                continue
-                            hora_raid_str = match_hora.group(0)
-                            fecha_raid_str = hoy_str
-                        else:
-                            dia, mes, anio, hora_raid_str = match_dt.groups()
-                            # Reordenamos a YYYY-MM-DD para comparar con hoy_str
-                            fecha_raid_str = f"{anio}-{mes}-{dia}"
+                            continue
+
+                        dia, mes, anio, hora_raid_str = match_dt.groups()
+                        fecha_raid_str = f"{anio}-{mes}-{dia}"
 
                         if fecha_raid_str != hoy_str:
                             continue
