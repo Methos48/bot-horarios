@@ -92,27 +92,47 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
 
 def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino):
     """
-    Pega los gráficos numéricos de RECURSOS_NUMEROS sobre la imagen base
-    formando la hora en formato 24 horas (ej. 23:15).
+    Toma la plantilla base de la imagen, calcula el ancho combinado de los números 
+    de la hora (formato 24h ej. 20:30) para centrarlos perfectamente debajo de 'ABRIO',
+    y los estampa usando los recursos configurados en RECURSOS_NUMEROS.
     """
     try:
         base_img = Image.open(ruta_imagen_origen).convert("RGBA")
-        
-        # Coordenadas iniciales (X, Y) donde empezará a dibujarse la hora en la imagen.
-        # Puedes ajustar estos valores según el diseño de tu banner/imagen.
-        pos_x = 50 
-        pos_y = 50 
-        espaciado = 2 # Pixeles entre cada número
+        ancho_total_img, alto_total_img = base_img.size
+
+        # 1. Cargamos temporalmente los dígitos para medir su ancho total y espaciado
+        digitos_cargados = []
+        ancho_bloque_total = 0
+        espaciado = 4  # Espacio en pixeles entre cada número/símbolo
 
         for char in hora_texto:
             ruta_digito = RECURSOS_NUMEROS.get(char)
             if ruta_digito and os.path.exists(ruta_digito):
                 digito_img = Image.open(ruta_digito).convert("RGBA")
+                digitos_cargados.append(digito_img)
+                ancho_bloque_total += digito_img.width
+            else:
+                digitos_cargados.append(None)
+                ancho_bloque_total += 30  # Ancho predeterminado de respaldo
+
+        # Añadimos el espacio acumulado entre los caracteres
+        if len(digitos_cargados) > 1:
+            ancho_bloque_total += espaciado * (len(digitos_cargados) - 1)
+
+        # 2. Calculamos la posición X inicial para que quede perfectamente CENTRADO horizontalmente
+        pos_x = (ancho_total_img - ancho_bloque_total) // 2
+        
+        # 3. Posición Y: Ajustada para colocarse en la franja negra inferior (ejemplo: debajo de ABRIO)
+        # Puedes modificar este valor si necesitas subirlo o bajarlo unos cuantos pixeles.
+        pos_y = int(alto_total_img * 0.76)
+
+        # 4. Pegamos cada dígito de manera secuencial sobre la imagen base
+        for i, digito_img in enumerate(digitos_cargados):
+            if digito_img:
                 base_img.paste(digito_img, (pos_x, pos_y), digito_img)
                 pos_x += digito_img.width + espaciado
             else:
-                # Si falta algún recurso, avanzamos un espacio por defecto para no romper el flujo
-                pos_x += 20
+                pos_x += 30 + espaciado
 
         base_img.save(ruta_imagen_destino, "PNG")
         return True
@@ -245,7 +265,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                                 if ruta_img and os.path.exists(ruta_img):
                                     ruta_final_envio = ruta_img
                                     
-                                    # Si es Valakas o Antharas y usa el sufijo 4, generamos la hora real de publicación en formato 24h
+                                    # Para Valakas y Antharas (sufijo 4), generamos la hora exacta real de publicación y la estampamos centrada
                                     if nombre in ["Valakas", "Antharas"] and sufijo == "4":
                                         hora_actual_24h = ahora_arg.strftime("%H:%M")
                                         ruta_temp_modificada = f"imagen/raid/raid/antes/{nombre.lower()}_modificada.png"
@@ -253,7 +273,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                                         if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp_modificada):
                                             ruta_final_envio = ruta_temp_modificada
                                         
-                                        logger.info(f"🕒 [SALIO] '{nombre}' (Sufijo 4) estampado con hora real: {hora_actual_24h}")
+                                        logger.info(f"🕒 [SALIO] '{nombre}' (Sufijo 4) estampado con hora real exacta: {hora_actual_24h}")
 
                                     await enviar_a_canales_salio(bot_instance, ruta_final_envio, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                     CACHE_SALIO[clave_cache] = True
