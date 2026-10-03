@@ -95,6 +95,9 @@ async def canal(bot,id_):
     return c
 
 async def publicar(bot,nombre,sufijo,hora=None,clave=None):
+    nombre_normalizado = normalizar(nombre)
+    # LA HORA SOLO SE PERMITE PARA VALAKAS 4 Y ANTHARAS 4.
+    poner_hora = hora is not None and nombre_normalizado in {"valakas", "antharas"} and str(sufijo) == "4"
     if clave and clave in MEMORIA_DUPLICADOS: return False
     ruta=plantilla(nombre,sufijo)
     if not ruta:
@@ -104,7 +107,7 @@ async def publicar(bot,nombre,sufijo,hora=None,clave=None):
     if not principal: return False
 
     img=None; buf=None
-    if hora is not None:
+    if poner_hora:
         img=Image.open(ruta).convert("RGBA")
         estampar(img,hora.strftime("%H:%M"))
         buf=io.BytesIO(); img.convert("RGB").save(buf,"PNG"); buf.seek(0)
@@ -116,7 +119,7 @@ async def publicar(bot,nombre,sufijo,hora=None,clave=None):
     if normalizar(nombre) in RAIDS_DUPLICADOS:
         prueba=await canal(bot,CANAL_DUPLICADO_PRUEBA)
         if prueba:
-            if hora is not None:
+            if poner_hora:
                 buf2=io.BytesIO(); img.convert("RGB").save(buf2,"PNG"); buf2.seek(0)
                 await prueba.send(file=discord.File(buf2,filename=f"{normalizar(nombre)}{sufijo}.png"))
                 buf2.close()
@@ -164,7 +167,11 @@ async def procesar_por_hora(bot_instance,item,lista,ahora):
         sufijo="4"
     else:
         sufijo="2"
-    if await publicar(bot_instance,nombre,sufijo,programado,clave):
+
+    # Solo Valakas 4 y Antharas 4 llevan la hora exacta.
+    hora_publicacion = programado if nombre in {"valakas", "antharas"} and sufijo == "4" else None
+
+    if await publicar(bot_instance,nombre,sufijo,hora_publicacion,clave):
         logger.info("[SALIO] %s detectado por hora %s",nombre,programado.strftime("%H:%M"))
 
 def reset_memorias(ahora):
