@@ -73,9 +73,8 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         ancho_bloque_total = 0
         espaciado = 4  # Espacio en píxeles entre cada número
 
-        # FACTOR DE ESCALA: 0.4 significa que los números se reducirán al 40% de su tamaño original.
-        # Si los quieres un poco más grandes o más chicos, puedes ajustar este valor (ej. 0.3 o 0.5).
-        factor_escala = 0.2
+        # FACTOR DE ESCALA AJUSTADO: 0.13 para que queden más pequeños y no choquen con ABRIO.
+        factor_escala = 0.13
 
         for char in hora_texto:
             ruta_digito = RECURSOS_NUMEROS.get(char)
@@ -96,11 +95,11 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         if len(digitos_cargados) > 1:
             ancho_bloque_total += espaciado * (len(digitos_cargados) - 1)
 
-        # Centrado horizontal automático con el nuevo ancho reducido
+        # Centrado horizontal automático
         pos_x = (ancho_total_img - ancho_bloque_total) // 2
         
-        # Coordenada Y: Ajustada un poco más abajo para que encaje perfectamente en la franja negra
-        pos_y = int(alto_total_img * 0.78)
+        # Coordenada Y AJUSTADA: 0.81 para bajarlos un poco más en la franja negra
+        pos_y = int(alto_total_img * 0.81)
 
         for digito_img in digitos_cargados:
             if digito_img:
@@ -156,14 +155,14 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
 
                 with open(ruta_final_envio, "rb") as binary:
                     await canal.send(
-                        content=f"🧪 **[PRUEBA DE TAMAÑO]** Antharas publicado a las `{hora_actual_24h}`",
+                        content=f"🧪 **[PRUEBA DE TAMAÑO Y POSICIÓN]** Antharas publicado a las `{hora_actual_24h}`",
                         file=discord.File(binary, filename=f"raid_{nombre_raid.lower()}_salio_{sufijo}.png")
                     )
-                logger.info(f"✅ [PRUEBA] Imagen de Antharas enviada con éxito al canal {canal_id} con la hora reducida.")
+                logger.info(f"✅ [PRUEBA] Imagen de Antharas enviada con éxito al canal {canal_id}.")
             else:
                 logger.error("❌ [PRUEBA] No se encontró la imagen de Antharas.")
         else:
-            logger.error(f"❌ [PRUEBA] El canal con ID {canal_id} no existe o el bot no tiene acceso.")
+            logger.error(f"❌ [PRUEBA] El canal con ID {canal_id} no existe o el bot não tiene acceso.")
 
     except Exception as e:
         logger.error(f"❌ [PRUEBA] Error crítico ejecutando la prueba: {e}")
