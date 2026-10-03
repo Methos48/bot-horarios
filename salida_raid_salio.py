@@ -76,7 +76,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
 
 async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, nombre_raid=""):
     canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+    # canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)  # Desactivado temporalmente para pruebas
     
     raids_con_duplicado = [
         "Baium", "Zaken", "Core", "Orfen", "Queen Ant", 
@@ -89,10 +89,11 @@ async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_disco
         if c1:
             canales_destino.append(c1)
             
-    if nombre_raid in raids_con_duplicado and canal_clan_id:
-        c2 = bot_instance.get_channel(canal_clan_id)
-        if c2 and c2 not in canales_destino:
-            canales_destino.append(c2)
+    # --- PRUEBAS: Canal de clan desactivado temporalmente ---
+    # if nombre_raid in raids_con_duplicado and canal_clan_id:
+    #     c2 = bot_instance.get_channel(canal_clan_id)
+    #     if c2 and c2 not in canales_destino:
+    #         canales_destino.append(c2)
 
     for canal in canales_destino:
         try:
@@ -153,12 +154,11 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
 
                             match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
                             if not match_dt:
-                                continue # Se elimina el respaldo inseguro con regex parcial de hora sola
+                                continue
 
                             dia, mes, anio, hora_raid_str = match_dt.groups()
                             fecha_raid_str = f"{anio}-{mes}-{dia}"
 
-                            # Validación estricta de fecha para asegurar que sea exactamente hoy
                             if fecha_raid_str != hoy_str:
                                 continue
 
