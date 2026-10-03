@@ -26,8 +26,8 @@ RECURSOS_NUMEROS = {
     ":": getattr(config, "NUMERO_DOS_PUNTOS", None)
 }
 
-# Listas de clasificación según tus reglas
-RAIDS_TIPO_1 = ["baium", "zaken", "core", "orfen", "queen ant", "frintezza", "freya", "zariche"]
+# Listas de clasificación normalizadas sin espacios para evitar errores de coincidencia
+RAIDS_TIPO_1 = ["baium", "zaken", "core", "orfen", "queenant", "frintezza", "freya", "zariche"]
 RAIDS_TIPO_2_INMEDIATO = ["valakas", "antharas", "fafurion"]
 RAIDS_TIPO_2_30MIN = ["valakas", "antharas"] # Específico para el caso 5 (30 minutos)
 
@@ -143,13 +143,15 @@ async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, est
         canales_a_enviar = []
         if canal_principal_id:
             c_prin = bot_instance.get_channel(int(canal_principal_id)) or await bot_instance.fetch_channel(int(canal_principal_id))
-            if c_prin: canales_a_enviar.append(c_prin)
+            if c_prin: 
+                canales_a_enviar.append(c_prin)
 
         # Duplicar en canal de clan para los raids indicados
         raids_duplicables = RAIDS_TIPO_1 + RAIDS_TIPO_2_INMEDIATO
-        if nombre_limpio in [r.replace(" ", "") for r in raids_duplicables] and canal_clan_id:
+        if nombre_limpio in raids_duplicables and canal_clan_id:
             c_clan = bot_instance.get_channel(int(canal_clan_id)) or await bot_instance.fetch_channel(int(canal_clan_id))
-            if c_clan: canales_a_enviar.append(c_clan)
+            if c_clan: 
+                canales_a_enviar.append(c_clan)
 
         for canal in canales_a_enviar:
             with open(ruta_final, "rb") as binary:
@@ -176,17 +178,20 @@ async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
     nombre_sin_espacios = nombre.replace(" ", "")
 
     # Tipo 1: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche -> Terminación 2
-    if nombre in RAIDS_TIPO_1 or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_1]:
+    if nombre_sin_espacios in RAIDS_TIPO_1:
         await enviar_publicacion_raid(bot_instance, nombre, "2", estampar_hora=False)
 
     # Tipo 2 (Inmediato): Valakas, Antharas, Fafurion -> Terminación 4 (con hora estampada)
-    elif nombre in RAIDS_TIPO_2_INMEDIATO or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_2_INMEDIATO]:
+    elif nombre_sin_espacios in RAIDS_TIPO_2_INMEDIATO:
         await enviar_publicacion_raid(bot_instance, nombre, "4", estampar_hora=True)
 
         # Programar caso 5 (30 minutos después) únicamente para Valakas y Antharas
-        if nombre in RAIDS_TIPO_2_30MIN or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_2_30MIN]:
-            tiempo_programado = asyncio.get_event_loop().time() + (30 * 60)
-            memoria_temporizadores[f"{nombre_sin_espacios}_5"] = tiempo_programado
+        if nombre_sin_espacios in RAIDS_TIPO_2_30MIN:
+            clave_temp = f"{nombre_sin_espacios}_5"
+            # Solo programar si no existe ya un temporizador activo para evitar sobrescribir
+            if clave_temp not in memoria_temporizadores:
+                tiempo_programado = asyncio.get_event_loop().time() + (30 * 60)
+                memoria_temporizadores[clave_temp] = tiempo_programado
 
 async def tarea_limpieza_memorias():
     """Limpia las memorias de duplicados y temporizadores todos los días a las 04:00 AM hora argentina."""
