@@ -1,357 +1,244 @@
 import os
-import logging
-import json
 import io
+import json
 import asyncio
+import logging
 import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
 import discord
 from PIL import Image
 import config
-from config import (
-    NUMERO_0, NUMERO_1, NUMERO_2, NUMERO_3, NUMERO_4,
-    NUMERO_5, NUMERO_6, NUMERO_7, NUMERO_8, NUMERO_9,
-    NUMERO_DOS_PUNTOS
-)
 
 logger = logging.getLogger("SalidaRaid")
-
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
-
-# Lock global para sincronizar el acceso concurrente al archivo JSON
 json_lock = asyncio.Lock()
 
-# Cachés independientes para evitar cruces
-CACHE_PUBLICAR_RAIDS = {}
-CACHE_ANTES = {}
-ULTIMO_RESET_CACHE_DIA = None  
-
-TEMA_ACTIVO = "morado"  # Puede cambiarse a "rojo", etc.
+# ===================== CONFIGURACION MANUAL =====================
+TEMA_ACTIVO = "morado"  # "morado" o "rojo"
+CANAL_PUBLICAR_RAIDS_PRUEBA = 1549577944999927999
 POS_X = 80
 POS_Y = 590
 
-# ==========================================
-# DICCIONARIOS DE FILTROS 100% INDEPENDIENTES
-# ==========================================
 FILTRO_PUBLICAR_RAIDS = {
-    "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "no",
-    "Electrical": "no", "Baium": "si", "Zaken": "si", "Core": "si",
-    "Orfen": "si", "Queen Ant": "si", "Frintezza": "si", "Freya": "si",
-    "Zariche": "si", "Decarbia": "si", "Hekaton": "si", "Queen shyeed": "si",
-    "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
-    "otros_60_mas": "no", "otros_60_menos": "no"
+    "valakas":"si","antharas":"si","fafureon":"si","balrog":"no","electrical":"no",
+    "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si","frintezza":"si",
+    "freya":"si","zariche":"si","decarbia":"si","hekaton":"si","queenshyeed":"si",
+    "golkonda":"si","galaxia":"si","barakiel":"si","otros_60_mas":"no","otros_60_menos":"no"
 }
-
 FILTRO_PUBLICAR_RAIDS_ANTES = {
-    "Valakas": "si", "Antharas": "si", "Fafureon": "si", "Balrog": "si",
-    "Electrical": "si", "Baium": "si", "Zaken": "si", "Core": "si",
-    "Orfen": "si", "Queen Ant": "si", "Frintezza": "si", "Freya": "si",
-    "Zariche": "si", "Decarbia": "si", "Hekaton": "si", "Queen shyeed": "si",
-    "Golkonda": "si", "Galaxia": "si", "Barakiel": "si",
-    "otros_60_mas": "si", "otros_60_menos": "no"
+    "valakas":"si","antharas":"si","fafureon":"si","balrog":"si","electrical":"si",
+    "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si","frintezza":"si",
+    "freya":"si","zariche":"si","decarbia":"si","hekaton":"si","queenshyeed":"si",
+    "golkonda":"si","galaxia":"si","barakiel":"si","otros_60_mas":"si","otros_60_menos":"no"
 }
 
-# ==========================================
-# FUNCIONES AUXILIARES VISUALES
-# ==========================================
-MAPEO_NUMEROS = {
-    '0': NUMERO_0, '1': NUMERO_1, '2': NUMERO_2, '3': NUMERO_3, '4': NUMERO_4,
-    '5': NUMERO_5, '6': NUMERO_6, '7': NUMERO_7, '8': NUMERO_8, '9': NUMERO_9,
-    ':': NUMERO_DOS_PUNTOS
-}
+MEMORIA_PUBLICAR_RAIDS = set()
+MEMORIA_PUBLICAR_RAIDS_ANTES = set()
+ULTIMO_RESET_DIA = None
 
-def estampar_hora_con_imagenes(imagen_base, texto_hora, x_inicial, y_inicial, altura_deseada=250, espacio_entre_digitos=12):
-    cursor_x = x_inicial
-    for caracter in texto_hora:
-        ruta_img_num = MAPEO_NUMEROS.get(caracter)
-        if ruta_img_num and os.path.exists(ruta_img_num):
-            try:
-                img_digito = Image.open(ruta_img_num).convert("RGBA")
-                w_original, h_original = img_digito.size
-                if caracter == ':':
-                    altura_actual = int(altura_deseada * 0.75)
-                    nuevo_ancho = int(w_original * (altura_actual / h_original))
-                    img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
-                    offset_y = y_inicial + int((altura_deseada - altura_actual) / 2)
-                    imagen_base.paste(img_digito, (cursor_x, offset_y), img_digito)
-                else:
-                    altura_actual = altura_deseada
-                    nuevo_ancho = int(w_original * (altura_actual / h_original))
-                    img_digito = img_digito.resize((nuevo_ancho, altura_actual), Image.Resampling.LANCZOS)
-                    imagen_base.paste(img_digito, (cursor_x, y_inicial), img_digito)
-                cursor_x += nuevo_ancho + espacio_entre_digitos
-            except Exception as e:
-                logger.error(f"❌ Error al estampar dígito '{caracter}': {e}")
+NUMEROS = {str(i): getattr(config, f"NUMERO_{i}", None) for i in range(10)}
+NUMEROS[":"] = getattr(config, "NUMERO_DOS_PUNTOS", None)
 
-def obtener_catalogo_imagenes_raid():
-    directorio_base = getattr(config, "DIR_RAID", "imagen/raid")
-    catalogo = {}
-    if not os.path.exists(directorio_base):
-        return catalogo
-    for root, dirs, files in os.walk(directorio_base):
-        for archivo in files:
-            if archivo.lower().endswith(('.png', '.webp', '.jpg', '.jpeg')):
-                ruta_completa = os.path.join(root, archivo)
-                clave_relativa = os.path.relpath(ruta_completa, directorio_base).replace("\\", "/")
-                catalogo[clave_relativa.lower()] = ruta_completa
-                catalogo[archivo.lower()] = ruta_completa
-    return catalogo
+def normalizar(nombre):
+    return re.sub(r"\s+", "", str(nombre or "").strip().lower())
 
-def obtener_imagen_raid(catalogo, nombre_base_raid, tipo_servicio):
-    nombre_limpio = nombre_base_raid.strip().lower()
-    rutas_candidatas = []
-    
-    if tipo_servicio == "PUBLICAR_RAIDS_ANTES":
-        rutas_candidatas = [f"raid/antes/{nombre_limpio}.png", f"antes/{nombre_limpio}.png", f"{TEMA_ACTIVO}/raid/antes/{nombre_limpio}.png"]
+def filtro_ok(filtro, nombre, lista):
+    nombre = normalizar(nombre)
+    if nombre in filtro:
+        return filtro[nombre] == "si"
+    if lista == "raid_60_plus":
+        return filtro.get("otros_60_mas", "no") == "si"
+    if lista == "raid_60_menos":
+        return filtro.get("otros_60_menos", "no") == "si"
+    return False
 
-    rutas_candidatas.extend([
-        f"{TEMA_ACTIVO}/raid/{nombre_limpio}.png", f"{TEMA_ACTIVO}/{nombre_limpio}.png",
-        f"{nombre_limpio}.png"
-    ])
+def parsear_fecha(valor):
+    m = re.fullmatch(r"(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})", str(valor or "").strip())
+    if not m:
+        return None
+    d, mo, y, h, mi = m.groups()
+    try:
+        return datetime(int(y), int(mo), int(d), int(h), int(mi), tzinfo=ZONA_ARGENTINA)
+    except ValueError:
+        return None
 
-    for ruta in rutas_candidatas:
-        for clave_cat in catalogo:
-            if clave_cat.endswith(ruta.lower()) or clave_cat == ruta.lower():
-                return catalogo[clave_cat]
-                
-    for clave, ruta_completa in catalogo.items():
-        if nombre_limpio in clave:
-            return ruta_completa
+def tiempo_item(item):
+    return item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or ""
+
+def cargar_raids(data):
+    for lista in ("raid_60_plus", "raid_60_menos", "vivo_o_muerto"):
+        valores = data.get(lista, [])
+        if isinstance(valores, list):
+            for item in valores:
+                if isinstance(item, dict):
+                    yield item, lista
+
+def reset_memorias(ahora):
+    global ULTIMO_RESET_DIA
+    dia = ahora.strftime("%Y-%m-%d")
+    if ahora.hour >= 4 and ULTIMO_RESET_DIA != dia:
+        MEMORIA_PUBLICAR_RAIDS.clear()
+        MEMORIA_PUBLICAR_RAIDS_ANTES.clear()
+        ULTIMO_RESET_DIA = dia
+        logger.info("Memorias de salida_raid limpiadas a las 04:00 Argentina.")
+
+def ruta_tema():
+    if TEMA_ACTIVO.lower() == "rojo":
+        return getattr(config, "DIR_ROJO_RAID", "imagen/raid/rojo/raid")
+    return getattr(config, "DIR_MORADO_RAID", "imagen/raid/morado/raid")
+
+def buscar_tema(nombre, sufijo):
+    base = ruta_tema()
+    for ext in (".png",".webp",".jpg",".jpeg"):
+        p = os.path.join(base, f"{nombre}{sufijo}{ext}")
+        if os.path.exists(p):
+            return p
     return None
 
-def limpiar_memoria_cache_diaria():
-    global ULTIMO_RESET_CACHE_DIA, CACHE_PUBLICAR_RAIDS, CACHE_ANTES
-    ahora_arg = datetime.now(ZONA_ARGENTINA)
-    hoy_str = ahora_arg.strftime("%Y-%m-%d")
-    
-    if ahora_arg.hour >= 4 and ULTIMO_RESET_CACHE_DIA != hoy_str:
-        CACHE_PUBLICAR_RAIDS.clear()
-        CACHE_ANTES.clear()
-        ULTIMO_RESET_CACHE_DIA = hoy_str
-        logger.info("🧹 Memoria caché de los servicios limpiada exitosamente a las 04:00 AM.")
+def buscar_antes(nombre, sufijo):
+    base = os.path.join("imagen","raid","raid","antes")
+    for ext in (".png",".webp",".jpg",".jpeg"):
+        p = os.path.join(base, f"{nombre}{sufijo}{ext}")
+        if os.path.exists(p):
+            return p
+    return None
 
-# ==========================================
-# SERVICIO 1: PUBLICAR_RAIDS (Usa ID fijo)
-# ==========================================
+def estampar_hora(img, texto):
+    x = POS_X
+    for c in texto:
+        p = NUMEROS.get(c)
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            d = Image.open(p).convert("RGBA")
+            alto = 95 if c != ":" else int(95 * .75)
+            ancho = int(d.width * alto / d.height)
+            d = d.resize((ancho, alto), Image.Resampling.LANCZOS)
+            y = POS_Y if c != ":" else POS_Y + int((95-alto)/2)
+            img.paste(d, (x,y), d)
+            x += ancho + 4
+        except Exception as e:
+            logger.error("Error al estampar %s: %s", c, e)
+
+async def obtener_canal(bot, canal_id):
+    if not canal_id:
+        return None
+    canal = bot.get_channel(int(canal_id))
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(int(canal_id))
+        except Exception as e:
+            logger.error("No se pudo obtener canal %s: %s", canal_id, e)
+    return canal
+
 async def servicio_publicar_raids(bot_instance, ruta_json):
+    await bot_instance.wait_until_ready()
+    logger.info("PUBLICAR_RAIDS iniciado. Tema: %s", TEMA_ACTIVO)
     while not bot_instance.is_closed():
         try:
-            limpiar_memoria_cache_diaria()
-            canal_id = 1549577944999927999
-            
-            if canal_id and os.path.exists(ruta_json):
+            ahora = datetime.now(ZONA_ARGENTINA)
+            reset_memorias(ahora)
+            if os.path.exists(ruta_json):
                 async with json_lock:
-                    with open(ruta_json, "r", encoding="utf-8") as f:
+                    with open(ruta_json, encoding="utf-8") as f:
                         data = json.load(f)
-
-                raid_60_plus = data.get("raid_60_plus", [])
-                raid_60_menos = data.get("raid_60_menos", [])
-                vivo_o_muerto = data.get("vivo_o_muerto", [])
-
-                todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
-
-                catalogo = obtener_catalogo_imagenes_raid()
-                channel = bot_instance.get_channel(canal_id)
-
-                ahora_arg = datetime.now(ZONA_ARGENTINA)
-
-                if channel and todos_los_jefes:
-                    for item in todos_los_jefes:
-                        nombre = str(item.get("nombre", "")).strip()
-                        if FILTRO_PUBLICAR_RAIDS.get(nombre, "no") != "si":
+                canal = await obtener_canal(bot_instance, CANAL_PUBLICAR_RAIDS_PRUEBA)
+                if canal:
+                    for item, lista in cargar_raids(data):
+                        nombre = normalizar(item.get("nombre"))
+                        if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS,nombre,lista):
+                            continue
+                        dt = parsear_fecha(tiempo_item(item))
+                        if not dt:
                             continue
 
-                        tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
-                        if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
-                            continue
-
-                        # Parseo estricto formato DD-MM-YYYY HH:MM del JSON
-                        match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
-                        if not match_dt:
-                            continue
-
-                        dia, mes, anio, hora_raid_str = match_dt.groups()
-                        fecha_raid_str = f"{anio}-{mes}-{dia}"
-
-                        try:
-                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                        except ValueError:
-                            continue
-
-                        sufijo_imagen = None
-                        tipo_ventana = None
-                        texto_a_estampar = hora_raid_str
-
-                        if nombre in ["Valakas", "Antharas", "Fafureon"]:
-                            dt_raid_ajustado = dt_raid - timedelta(minutes=30)
-                            texto_a_estampar = dt_raid_ajustado.strftime("%H:%M")
-                            
-                            dt_dia_anterior_10 = (dt_raid_ajustado - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
-                            dt_mismo_dia_10 = dt_raid_ajustado.replace(hour=10, minute=0, second=0, microsecond=0)
-                            dt_mismo_dia_18 = dt_raid_ajustado.replace(hour=18, minute=0, second=0, microsecond=0)
-
-                            if dt_dia_anterior_10 <= ahora_arg < dt_dia_anterior_10 + timedelta(minutes=5):
-                                tipo_ventana = "dia_anterior_10m"
-                                sufijo_imagen = "m"
-                            elif dt_mismo_dia_10 <= ahora_arg < dt_mismo_dia_10 + timedelta(minutes=5):
-                                tipo_ventana = "mismo_dia_10h"
-                                sufijo_imagen = "h"
-                            elif dt_mismo_dia_18 <= ahora_arg < dt_mismo_dia_18 + timedelta(minutes=5):
-                                tipo_ventana = "mismo_dia_18h"
-                                sufijo_imagen = "h"
+                        if nombre in {"valakas","antharas","fafureon"}:
+                            # La hora impresa es siempre la original menos 30 minutos.
+                            impresa = dt - timedelta(minutes=30)
+                            ventanas = [
+                                (dt.replace(hour=10,minute=0,second=0,microsecond=0)-timedelta(days=1),"m","dia_anterior_10"),
+                                (dt.replace(hour=10,minute=0,second=0,microsecond=0),"h","mismo_dia_10"),
+                                (dt.replace(hour=18,minute=0,second=0,microsecond=0),"h","mismo_dia_18"),
+                            ]
                         else:
-                            if 16 <= dt_raid.hour <= 23:
-                                dt_publicacion = dt_raid.replace(hour=14, minute=0, second=0, microsecond=0)
-                                if dt_publicacion <= ahora_arg < dt_publicacion + timedelta(minutes=5):
-                                    tipo_ventana = "normal_1400"
-                                    sufijo_imagen = hora_raid_str.replace(':', '')
+                            # Solo raids que salen hoy entre 16:00 y 23:59.
+                            if dt.date() != ahora.date() or not (16 <= dt.hour <= 23):
+                                continue
+                            ventanas = [(dt.replace(hour=14,minute=0,second=0,microsecond=0),dt.strftime("%H%M"),"normal_1400")]
+                            impresa = dt
 
-                        if not tipo_ventana or not sufijo_imagen:
-                            continue
-
-                        clave_cache = f"{nombre}_{fecha_raid_str}_{tipo_ventana}"
-                        if CACHE_PUBLICAR_RAIDS.get(clave_cache):
-                            continue
-
-                        nombre_archivo_busqueda = f"{nombre.lower()}{sufijo_imagen}.png"
-                        ruta_personalizada_tema = f"imagen/raid/{TEMA_ACTIVO}/raid/{nombre_archivo_busqueda}"
-                        
-                        ruta_img = None
-                        if os.path.exists(ruta_personalizada_tema):
-                            ruta_img = ruta_personalizada_tema
-                        else:
-                            ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo_imagen}", "PUBLICAR_RAIDS")
-
-                        if ruta_img and os.path.exists(ruta_img):
-                            img = Image.open(ruta_img).convert("RGBA")
-                            estampar_hora_con_imagenes(img, texto_a_estampar, POS_X, POS_Y, altura_deseada=95, espacio_entre_digitos=4)
-                            
-                            with io.BytesIO() as binary:
-                                img.convert("RGB").save(binary, "PNG")
-                                binary.seek(0)
-                                await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_{sufijo_imagen}.png"))
-                                CACHE_PUBLICAR_RAIDS[clave_cache] = True
-                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito al canal ({canal_id}) (Ventana: {tipo_ventana}).")
-                                await asyncio.sleep(1.5)
+                        for inicio,sufijo,ventana in ventanas:
+                            if not (inicio <= ahora < inicio + timedelta(minutes=5)):
+                                continue
+                            clave = f"{nombre}|{dt.strftime('%Y-%m-%d')}|{ventana}"
+                            if clave in MEMORIA_PUBLICAR_RAIDS:
+                                break
+                            ruta = buscar_tema(nombre,sufijo)
+                            if not ruta:
+                                logger.warning("No existe plantilla: %s%s en tema %s",nombre,sufijo,TEMA_ACTIVO)
+                                break
+                            img = Image.open(ruta).convert("RGBA")
+                            estampar_hora(img, impresa.strftime("%H:%M"))
+                            buf = io.BytesIO()
+                            img.convert("RGB").save(buf,"PNG")
+                            buf.seek(0)
+                            await canal.send(file=discord.File(buf,filename=f"{nombre}{sufijo}.png"))
+                            MEMORIA_PUBLICAR_RAIDS.add(clave)
+                            logger.info("[PUBLICAR_RAIDS] %s%s publicado (%s)",nombre,sufijo,ventana)
+                            break
         except Exception as e:
-            logger.error(f"❌ Error en servicio_publicar_raids: {e}")
-        
+            logger.exception("Error en PUBLICAR_RAIDS: %s",e)
         await asyncio.sleep(30)
 
-# ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Solo ENVIAR_MENSAJE_CHANNEL_ID)
-# ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
+    await bot_instance.wait_until_ready()
+    logger.info("PUBLICAR_RAIDS_ANTES iniciado.")
     while not bot_instance.is_closed():
         try:
-            limpiar_memoria_cache_diaria()
-            canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-            
-            if canal_principal_id and os.path.exists(ruta_json):
-                async with json_lock:
-                    with open(ruta_json, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-
-                raid_60_plus = data.get("raid_60_plus", [])
-                raid_60_menos = data.get("raid_60_menos", [])
-                vivo_o_muerto = data.get("vivo_o_muerto", [])
-
-                todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
-                
-                channel_principal = bot_instance.get_channel(canal_principal_id)
-
-                ahora_arg = datetime.now(ZONA_ARGENTINA)
-                hoy_str = ahora_arg.strftime("%Y-%m-%d")
-
-                if channel_principal and todos_los_jefes:
-                    for item in todos_los_jefes:
-                        nombre = str(item.get("nombre", "")).strip()
-                        
-                        es_60_plus = item in raid_60_plus
-                        if es_60_plus and FILTRO_PUBLICAR_RAIDS_ANTES.get("otros_60_mas", "no") != "si":
-                            if FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
-                                continue
-                        elif not es_60_plus and FILTRO_PUBLICAR_RAIDS_ANTES.get(nombre, "no") != "si":
+            ahora = datetime.now(ZONA_ARGENTINA)
+            reset_memorias(ahora)
+            canal_id = getattr(config,"ENVIAR_MENSAJE_CHANNEL_ID",None)
+            if canal_id and os.path.exists(ruta_json):
+                canal = await obtener_canal(bot_instance,canal_id)
+                if canal:
+                    async with json_lock:
+                        with open(ruta_json,encoding="utf-8") as f:
+                            data = json.load(f)
+                    for item,lista in cargar_raids(data):
+                        nombre = normalizar(item.get("nombre"))
+                        if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS_ANTES,nombre,lista):
                             continue
-
-                        tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
-                        if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
+                        dt = parsear_fecha(tiempo_item(item))
+                        if not dt or dt.date() != ahora.date():
                             continue
-
-                        # Parseo estricto formato DD-MM-YYYY HH:MM del JSON
-                        match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
-                        if not match_dt:
-                            continue
-
-                        dia, mes, anio, hora_raid_str = match_dt.groups()
-                        fecha_raid_str = f"{anio}-{mes}-{dia}"
-
-                        if fecha_raid_str != hoy_str:
-                            continue
-
-                        try:
-                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                        except ValueError:
-                            continue
-
-                        sufijos_a_evaluar = []
-
-                        if nombre in ["Valakas", "Antharas", "Fafureon"]:
-                            dt_60m = dt_raid - timedelta(minutes=60)
-                            dt_30m = dt_raid - timedelta(minutes=30)
-                            dt_0m = dt_raid
-                            sufijos_a_evaluar = [
-                                (dt_60m, "1"),
-                                (dt_30m, "2"),
-                                (dt_0m, "3")
-                            ]
-                        elif nombre in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche"]:
-                            sufijos_a_evaluar = [
-                                (dt_raid, "1")
-                            ]
+                        if nombre in {"valakas","antharas","fafureon"}:
+                            objetivos=[(dt-timedelta(minutes=60),"1"),(dt-timedelta(minutes=30),"2"),(dt,"3")]
+                        elif nombre in {"baium","zaken","core","orfen","queenant","frintezza","freya","zariche"}:
+                            objetivos=[(dt,"1")]
                         else:
-                            dt_10m_antes = dt_raid - timedelta(minutes=10)
-                            sufijos_a_evaluar = [
-                                (dt_10m_antes, "1")
-                            ]
-
-                        for dt_objetivo, sufijo in sufijos_a_evaluar:
-                            if dt_objetivo <= ahora_arg < dt_objetivo + timedelta(minutes=5):
-                                clave_cache = f"{nombre}_{fecha_raid_str}_antes_{sufijo}"
-                                
-                                if CACHE_ANTES.get(clave_cache):
+                            objetivos=[(dt-timedelta(minutes=10),"1")]
+                        for objetivo,sufijo in objetivos:
+                            if objetivo <= ahora < objetivo+timedelta(minutes=5):
+                                clave=f"{nombre}|{dt.strftime('%Y-%m-%d')}|{sufijo}"
+                                if clave in MEMORIA_PUBLICAR_RAIDS_ANTES:
                                     break
-
-                                nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
-                                ruta_personalizada = f"imagen/raid/raid/antes/{nombre_archivo}"
-                                
-                                ruta_img = None
-                                if os.path.exists(ruta_personalizada):
-                                    ruta_img = ruta_personalizada
-                                else:
-                                    catalogo = obtener_catalogo_imagenes_raid()
-                                    ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_ANTES")
-
-                                if ruta_img and os.path.exists(ruta_img):
-                                    with open(ruta_img, "rb") as binary:
-                                        await channel_principal.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
-
-                                    CACHE_ANTES[clave_cache] = True
-                                    logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}' (Sufijo: {sufijo}).")
-                                    await asyncio.sleep(1.5)
+                                ruta=buscar_antes(nombre,sufijo)
+                                if not ruta:
+                                    logger.warning("No existe plantilla ANTES: %s%s",nombre,sufijo)
+                                    break
+                                with open(ruta,"rb") as f:
+                                    await canal.send(file=discord.File(f,filename=f"{nombre}{sufijo}.png"))
+                                MEMORIA_PUBLICAR_RAIDS_ANTES.add(clave)
+                                logger.info("[PUBLICAR_RAIDS_ANTES] %s%s publicado",nombre,sufijo)
                                 break
         except Exception as e:
-            logger.error(f"❌ Error en servicio_publicar_raids_antes: {e}")
-
+            logger.exception("Error en PUBLICAR_RAIDS_ANTES: %s",e)
         await asyncio.sleep(30)
 
-# ==========================================
-# GESTOR CENTRAL DE TAREAS (Inicia los servicios en paralelo)
-# ==========================================
-async def iniciar_monitoreo_permanente_raids(bot_instance, ruta_json="jefes_activos.json", intervalo_segundos=30):
-    logger.info("🔄 Iniciando los servicios independientes de Raids en paralelo...")
+async def iniciar_monitoreo_permanente_raids(bot_instance,ruta_json="jefes_activos.json",intervalo_segundos=30):
     await bot_instance.wait_until_ready()
-
-    asyncio.create_task(servicio_publicar_raids(bot_instance, ruta_json))
-    asyncio.create_task(servicio_publicar_raids_antes(bot_instance, ruta_json))
+    logger.info("Iniciando PUBLICAR_RAIDS y PUBLICAR_RAIDS_ANTES.")
+    asyncio.create_task(servicio_publicar_raids(bot_instance,ruta_json))
+    asyncio.create_task(servicio_publicar_raids_antes(bot_instance,ruta_json))
