@@ -12,6 +12,21 @@ logger = logging.getLogger("SalidaRaidSalio")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
+# --- IMPORTACIÓN DE NÚMEROS DESDE CONFIG ---
+RECURSOS_NUMEROS = {
+    "0": config.NUMERO_0,
+    "1": config.NUMERO_1,
+    "2": config.NUMERO_2,
+    "3": config.NUMERO_3,
+    "4": config.NUMERO_4,
+    "5": config.NUMERO_5,
+    "6": config.NUMERO_6,
+    "7": config.NUMERO_7,
+    "8": config.NUMERO_8,
+    "9": config.NUMERO_9,
+    ":": config.NUMERO_DOS_PUNTOS
+}
+
 # Cachés y estados exclusivos para el servicio de Salió
 CACHE_SALIO = {}
 CACHE_SALIO_35M = {}
@@ -76,24 +91,12 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
 
 async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, nombre_raid=""):
     canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-    # canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)  # Desactivado temporalmente para pruebas
-    
-    raids_con_duplicado = [
-        "Baium", "Zaken", "Core", "Orfen", "Queen Ant", 
-        "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"
-    ]
     
     canales_destino = []
     if canal_principal_id:
         c1 = bot_instance.get_channel(canal_principal_id)
         if c1:
             canales_destino.append(c1)
-            
-    # --- PRUEBAS: Canal de clan desactivado temporalmente ---
-    # if nombre_raid in raids_con_duplicado and canal_clan_id:
-    #     c2 = bot_instance.get_channel(canal_clan_id)
-    #     if c2 and c2 not in canales_destino:
-    #         canales_destino.append(c2)
 
     for canal in canales_destino:
         try:
