@@ -145,7 +145,7 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                                 if FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos", "no") != "si":
                                     continue
 
-                        # 1. Raids comunes (Hora exacta DD-MM-AAAA HH:MM)
+                        # 1. Raids comunes (Hora exacta DD-MM-YYYY HH:MM)
                         if nombre not in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"]:
                             tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
                             if tiempo_bruto and tiempo_bruto not in ["-", "None", "null", ""]:
@@ -160,28 +160,31 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                                     dia, mes, anio, hora_raid_str = match_dt.groups()
                                     fecha_raid_str = f"{anio}-{mes}-{dia}"
 
-                                if fecha_raid_str == hoy_str:
-                                    try:
-                                        dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                                        
-                                        if dt_raid <= ahora_arg < dt_raid + timedelta(minutes=5):
-                                            sufijo = "2"
-                                            clave_cache_hora = f"{nombre}_{fecha_raid_str}_{hora_raid_str}_hora_exacta"
-                                            if not CACHE_SALIO.get(clave_cache_hora):
-                                                nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
-                                                ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
-                                                
-                                                if not os.path.exists(ruta_img):
-                                                    catalogo = obtener_catalogo_imagenes_raid()
-                                                    ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}")
+                                # Validación estricta de fecha para asegurar que sea exactamente hoy
+                                if fecha_raid_str != hoy_str:
+                                    continue
 
-                                                if ruta_img and os.path.exists(ruta_img):
-                                                    await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
-                                                    CACHE_SALIO[clave_cache_hora] = True
-                                                    logger.info(f"✅ [SALIO] Raid común '{nombre}' publicado a su hora exacta ({hora_raid_str}).")
-                                                    await asyncio.sleep(1.0)
-                                    except ValueError:
-                                        pass
+                                try:
+                                    dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                                    
+                                    if dt_raid <= ahora_arg < dt_raid + timedelta(minutes=5):
+                                        sufijo = "2"
+                                        clave_cache_hora = f"{nombre}_{fecha_raid_str}_{hora_raid_str}_hora_exacta"
+                                        if not CACHE_SALIO.get(clave_cache_hora):
+                                            nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
+                                            ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+                                            
+                                            if not os.path.exists(ruta_img):
+                                                catalogo = obtener_catalogo_imagenes_raid()
+                                                ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}")
+
+                                            if ruta_img and os.path.exists(ruta_img):
+                                                await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
+                                                CACHE_SALIO[clave_cache_hora] = True
+                                                logger.info(f"✅ [SALIO] Raid común '{nombre}' publicado a su hora exacta ({hora_raid_str}).")
+                                                await asyncio.sleep(1.0)
+                                except ValueError:
+                                    pass
                             continue
 
                         # 2. Épicos y Dragones (Monitoreo de estado Vivo/Muerto)
