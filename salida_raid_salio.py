@@ -134,10 +134,19 @@ async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance,raid_data,tipo_lista="vivo_o_
     if not isinstance(raid_data,dict): return
     nombre=normalizar(raid_data.get("nombre"))
     estado=str(raid_data.get("estado","")).strip().lower()
-    if not nombre or not filtro_ok(nombre,tipo_lista): return
+    if not nombre: return
+
+    # Primero se registra y monitorea el estado de TODOS los raids.
+    # El filtro NO decide si se monitorea: solamente decide si una
+    # transición detectada se publica.
     anterior=ESTADO_ANTERIOR.get(nombre)
     ESTADO_ANTERIOR[nombre]=estado
+
     if anterior!="muerto" or estado!="vivo": return
+
+    # La transición ya fue detectada; recién ahora se aplica el filtro
+    # de publicación.
+    if not filtro_ok(nombre,tipo_lista): return
 
     ahora=datetime.now(ZONA_ARGENTINA)
     clave=f"{nombre}|{ahora.date()}|nacimiento"
@@ -170,9 +179,13 @@ async def servicio_publicar_raids_salio(bot_instance,ruta_json,json_lock):
             # +30 min de Valakas/Antharas.
             ahora_mono=asyncio.get_event_loop().time()
             for nombre,(objetivo,fecha_nacimiento) in list(MEMORIA_30_MIN.items()):
-                if ahora_mono>=objetivo:
+                if objetivo <= ahora_mono < objetivo + 300:
                     clave=f"{nombre}|{fecha_nacimiento}|30min"
                     await publicar(bot_instance,nombre,"5",None,clave)
+                    del MEMORIA_30_MIN[nombre]
+                elif ahora_mono >= objetivo + 300:
+                    # Si el bot estuvo caído durante la ventana de 5 minutos,
+                    # no publica atrasado.
                     del MEMORIA_30_MIN[nombre]
 
             if os.path.exists(ruta_json):
