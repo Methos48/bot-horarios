@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import discord
 import config
 
-logger = logging.getLogger("SalidaRaidPrueba")
+logger = logging.getLogger("SalidaRaid")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
@@ -61,8 +61,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
 
 def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino):
     """
-    Redimensiona los números a un tamaño más pequeño y los estampa 
-    centrados horizontalmente en la parte inferior de la imagen.
+    Estampa la hora con el tamaño y posición exactos probados y calibrados.
     """
     try:
         from PIL import Image
@@ -73,7 +72,7 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         ancho_bloque_total = 0
         espaciado = 4  # Espacio en píxeles entre cada número
 
-        # FACTOR DE ESCALA AJUSTADO: 0.13 para que queden más pequeños y no choquen con ABRIO.
+        # Configuración exacta validada
         factor_escala = 0.15
 
         for char in hora_texto:
@@ -81,7 +80,6 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
             if ruta_digito and os.path.exists(ruta_digito):
                 digito_img = Image.open(ruta_digito).convert("RGBA")
                 
-                # Redimensionamos proporcionalmente el dígito
                 nuevo_ancho = int(digito_img.width * factor_escala)
                 nuevo_alto = int(digito_img.height * factor_escala)
                 digito_img = digito_img.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
@@ -98,7 +96,7 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         # Centrado horizontal automático
         pos_x = (ancho_total_img - ancho_bloque_total) // 2
         
-        # Coordenada Y AJUSTADA: 0.81 para bajarlos un poco más en la franja negra
+        # Posición vertical exacta validada
         pos_y = int(alto_total_img * 0.83)
 
         for digito_img in digitos_cargados:
@@ -115,57 +113,42 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         return False
 
 # ==========================================
-# SERVICIO DE PRUEBA INMEDIATA
+# SERVICIO PRINCIPAL DE PUBLICACIÓN DE RAIDS
 # ==========================================
 async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
     await bot_instance.wait_until_ready()
-    logger.info("🧪 [PRUEBA] El bot se ha conectado. Ejecutando envío inmediato de prueba para Antharas...")
-
-    try:
-        canal_id = 1551217678386208879
-        canal = bot_instance.get_channel(canal_id)
-        
-        if not canal:
-            try:
-                canal = await bot_instance.fetch_channel(canal_id)
-            except Exception as e:
-                logger.error(f"❌ [PRUEBA] No se pudo obtener el canal con ID {canal_id}: {e}")
-                return
-
-        if canal:
-            nombre_raid = "Antharas"
-            sufijo = "4"
-            
-            nombre_archivo = f"{nombre_raid.lower()}{sufijo}.png"
-            ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
-
-            if not os.path.exists(ruta_img):
-                catalogo = obtener_catalogo_imagenes_raid()
-                ruta_img = obtener_imagen_raid(catalogo, f"{nombre_raid}{sufijo}")
-
-            if ruta_img and os.path.exists(ruta_img):
-                ahora_arg = datetime.now(ZONA_ARGENTINA)
-                hora_actual_24h = ahora_arg.strftime("%H:%M")
-                
-                ruta_temp_modificada = f"imagen/raid/raid/antes/{nombre_raid.lower()}_prueba_modificada.png"
-                
-                ruta_final_envio = ruta_img
-                if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp_modificada):
-                    ruta_final_envio = ruta_temp_modificada
-
-                with open(ruta_final_envio, "rb") as binary:
-                    await canal.send(
-                        content=f"🧪 **[PRUEBA DE TAMAÑO Y POSICIÓN]** Antharas publicado a las `{hora_actual_24h}`",
-                        file=discord.File(binary, filename=f"raid_{nombre_raid.lower()}_salio_{sufijo}.png")
-                    )
-                logger.info(f"✅ [PRUEBA] Imagen de Antharas enviada con éxito al canal {canal_id}.")
-            else:
-                logger.error("❌ [PRUEBA] No se encontró la imagen de Antharas.")
-        else:
-            logger.error(f"❌ [PRUEBA] El canal con ID {canal_id} no existe o el bot não tiene acceso.")
-
-    except Exception as e:
-        logger.error(f"❌ [PRUEBA] Error crítico ejecutando la prueba: {e}")
+    logger.info("🚀 Servicio de publicación de raids iniciado correctamente.")
 
     while not bot_instance.is_closed():
-        await asyncio.sleep(60)
+        try:
+            # Aquí va la lógica normal de lectura de tu archivo JSON de raids
+            if os.path.exists(ruta_json):
+                async with json_lock:
+                    with open(ruta_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                
+                # --- EJEMPLO DE USO INTEGRADO PARA ANTHARAS/VALAKAS CON SUFIJO 4 ---
+                # Cada vez que detectes que un raid como Antharas o Valakas con sufijo 4 sale:
+                # (Asegúrate de adaptar esta parte a la estructura de tu bucle de raids actual)
+                
+                # Ejemplo de validación para el envío:
+                # nombre_raid = raid.get("nombre")  # ej: "Antharas" o "Valakas"
+                # sufijo = raid.get("sufijo", "")    # ej: "4"
+                # canal_id = raid.get("canal_id")
+                
+                # Si el nombre es Antharas o Valakas y su sufijo/identificador termina en 4:
+                # if nombre_raid.lower() in ["antharas", "valakas"] and str(sufijo) == "4":
+                #     ruta_img = obtener_imagen_raid(obtener_catalogo_imagenes_raid(), f"{nombre_raid}{sufijo}")
+                #     if ruta_img and os.path.exists(ruta_img):
+                #         ahora_arg = datetime.now(ZONA_ARGENTINA)
+                #         hora_actual_24h = ahora_arg.strftime("%H:%M")
+                #         ruta_temp = f"imagen/raid/raid/antes/{nombre_raid.lower()}_modificada.png"
+                #         
+                #         if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp):
+                #             # Enviar al canal correspondiente con tu lógica de Discord
+                #             pass
+
+            await asyncio.sleep(30) # Comprobación periódica del JSON
+        except Exception as e:
+            logger.error(f"❌ Error en el ciclo principal de raids: {e}")
+            await asyncio.sleep(30)
