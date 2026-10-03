@@ -11,576 +11,182 @@ from PIL import Image
 import config
 
 logger = logging.getLogger("SalidaRaid")
-ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
+ZONA_ARGENTINA = ZoneInfo(getattr(config,"TZ","America/Argentina/Buenos_Aires"))
 
 CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO = {
-    "valakas": "si", "antharas": "si", "fafureon": "si",
-    "baium": "si", "zaken": "si", "core": "si", "orfen": "si",
-    "queenant": "si", "frintezza": "si", "freya": "si", "zariche": "si",
-    "decarbia": "si", "hekaton": "si", "queenshyeed": "si",
-    "golkonda": "si", "galaxia": "si", "barakiel": "si",
-    "balrog": "no", "electrical": "no",
-    "otros_60_mas": "si", "otros_60_menos": "no",
+    "valakas":"si","antharas":"si","fafureon":"si",
+    "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si",
+    "frintezza":"si","freya":"si","zariche":"si",
+    "decarbia":"si","hekaton":"si","queenshyeed":"si","golkonda":"si",
+    "galaxia":"si","barakiel":"si","balrog":"no","electrical":"no",
+    "otros_60_mas":"si","otros_60_menos":"no",
 }
 
 CANAL_DUPLICADO_PRUEBA = 1549577944999927999
+RAIDS_DUPLICADOS = {"baium","zaken","core","orfen","queenant","frintezza","freya","zariche","valakas","antharas","fafureon"}
+NUMEROS={str(i):getattr(config,f"NUMERO_{i}",None) for i in range(10)}
+NUMEROS[":"]=getattr(config,"NUMERO_DOS_PUNTOS",None)
 
-# Estos 11 solamente pueden confirmarse como "salieron"
-# mediante el estado VIVO/MUERTO de la página.
-RAIDS_VIVO_O_MUERTO = {
-    "orfen", "queenant", "core", "zaken", "baium",
-    "frintezza", "freya", "zariche", "valakas",
-    "antharas", "fafureon",
-}
-
-# Para duplicar el mensaje en el canal de prueba.
-RAIDS_DUPLICADOS = set(RAIDS_VIVO_O_MUERTO)
-
-NUMEROS = {str(i): getattr(config, f"NUMERO_{i}", None) for i in range(10)}
-NUMEROS[":"] = getattr(config, "NUMERO_DOS_PUNTOS", None)
-
-MEMORIA_DUPLICADOS = set()
-ESTADO_ANTERIOR_VIVO_MUERTO = {}
-MEMORIA_SALIDA_ESPECIALES = {}
-ULTIMO_RESET_DIA = None
-
+MEMORIA_DUPLICADOS=set()
+ULTIMO_RESET_DIA=None
 
 def normalizar(nombre):
-    return str(nombre or "").strip().lower().replace(" ", "")
+    return str(nombre or "").strip().lower().replace(" ","")
 
-
-def filtro_ok(nombre, lista):
+def filtro_ok(nombre,lista):
     if nombre in CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO:
-        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO[nombre] == "si"
-
-    if lista == "raid_60_plus":
-        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_mas", "no") == "si"
-
-    if lista == "raid_60_menos":
-        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos", "no") == "si"
-
-    return False
-
+        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO[nombre]=="si"
+    if lista=="raid_60_plus":
+        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_mas","no")=="si"
+    return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos","no")=="si"
 
 def cargar_raids(data):
-    # Se revisan TODAS las listas.
-    for lista in ("raid_60_plus", "raid_60_menos", "vivo_o_muerto"):
-        valores = data.get(lista, [])
-        if isinstance(valores, list):
+    for lista in ("raid_60_plus","raid_60_menos","vivo_o_muerto"):
+        valores=data.get(lista,[])
+        if isinstance(valores,list):
             for item in valores:
-                if isinstance(item, dict):
-                    yield item, lista
-
+                if isinstance(item,dict):
+                    yield item,lista
 
 def catalogo():
-    base = os.path.join("imagen", "raid", "raid", "antes")
-    salida = {}
-
+    base=os.path.join("imagen","raid","raid","antes")
+    salida={}
     if not os.path.exists(base):
         return salida
-
-    for root, _, files in os.walk(base):
+    for root,_,files in os.walk(base):
         for f in files:
-            if f.lower().endswith((".png", ".webp", ".jpg", ".jpeg")):
-                salida[f.lower()] = os.path.join(root, f)
-
+            if f.lower().endswith((".png",".webp",".jpg",".jpeg")):
+                salida[f.lower()]=os.path.join(root,f)
     return salida
 
-
-def plantilla(nombre, sufijo):
-    c = catalogo()
-    base = f"{normalizar(nombre)}{sufijo}"
-
-    for ext in (".png", ".webp", ".jpg", ".jpeg"):
-        if base + ext in c:
-            return c[base + ext]
-
+def plantilla(nombre,sufijo):
+    c=catalogo()
+    base=f"{normalizar(nombre)}{sufijo}"
+    for ext in (".png",".webp",".jpg",".jpeg"):
+        if base+ext in c:
+            return c[base+ext]
     return None
 
-
-def estampar(img, hora):
-    cargados = []
-    ancho_total = 0
-    espacio = 4
-    escala = 0.15
-
+def estampar(img,hora):
+    cargados=[]; ancho_total=0; espacio=4; escala=.15
     for c in hora:
-        p = NUMEROS.get(c)
-
+        p=NUMEROS.get(c)
         if p and os.path.exists(p):
-            d = Image.open(p).convert("RGBA")
-            w = int(d.width * escala)
-            h = int(d.height * escala)
-            d = d.resize((w, h), Image.Resampling.LANCZOS)
-            cargados.append(d)
-            ancho_total += w
+            d=Image.open(p).convert("RGBA")
+            w=int(d.width*escala); h=int(d.height*escala)
+            d=d.resize((w,h),Image.Resampling.LANCZOS)
+            cargados.append(d); ancho_total+=w
         else:
-            cargados.append(None)
-            ancho_total += 20
-
-    if len(cargados) > 1:
-        ancho_total += espacio * (len(cargados) - 1)
-
-    x = (img.width - ancho_total) // 2
-    y = int(img.height * 0.83)
-
+            cargados.append(None); ancho_total+=20
+    if len(cargados)>1: ancho_total+=espacio*(len(cargados)-1)
+    x=(img.width-ancho_total)//2; y=int(img.height*.83)
     for d in cargados:
         if d:
-            img.paste(d, (x, y), d)
-            x += d.width + espacio
-        else:
-            x += 20 + espacio
+            img.paste(d,(x,y),d); x+=d.width+espacio
+        else: x+=20+espacio
 
-
-async def canal(bot, id_):
-    if not id_:
-        return None
-
-    c = bot.get_channel(int(id_))
-
+async def canal(bot,id_):
+    if not id_: return None
+    c=bot.get_channel(int(id_))
     if c is None:
-        try:
-            c = await bot.fetch_channel(int(id_))
+        try: c=await bot.fetch_channel(int(id_))
         except Exception as e:
-            logger.error("No se pudo obtener canal %s: %s", id_, e)
-
+            logger.error("No se pudo obtener canal %s: %s",id_,e)
     return c
 
+async def publicar(bot,nombre,sufijo,hora=None,clave=None):
+    if clave and clave in MEMORIA_DUPLICADOS: return False
+    ruta=plantilla(nombre,sufijo)
+    if not ruta:
+        logger.warning("No existe plantilla SALIO: %s%s",normalizar(nombre),sufijo)
+        return False
+    principal=await canal(bot,getattr(config,"ENVIAR_MENSAJE_CHANNEL_ID",None))
+    if not principal: return False
+
+    img=None; buf=None
+    if hora is not None:
+        img=Image.open(ruta).convert("RGBA")
+        estampar(img,hora.strftime("%H:%M"))
+        buf=io.BytesIO(); img.convert("RGB").save(buf,"PNG"); buf.seek(0)
+        await principal.send(file=discord.File(buf,filename=f"{normalizar(nombre)}{sufijo}.png"))
+    else:
+        with open(ruta,"rb") as f:
+            await principal.send(file=discord.File(f,filename=f"{normalizar(nombre)}{sufijo}.png"))
+
+    if normalizar(nombre) in RAIDS_DUPLICADOS:
+        prueba=await canal(bot,CANAL_DUPLICADO_PRUEBA)
+        if prueba:
+            if hora is not None:
+                buf2=io.BytesIO(); img.convert("RGB").save(buf2,"PNG"); buf2.seek(0)
+                await prueba.send(file=discord.File(buf2,filename=f"{normalizar(nombre)}{sufijo}.png"))
+                buf2.close()
+            else:
+                with open(ruta,"rb") as f:
+                    await prueba.send(file=discord.File(f,filename=f"{normalizar(nombre)}{sufijo}.png"))
+    if buf: buf.close()
+    if clave: MEMORIA_DUPLICADOS.add(clave)
+    logger.info("[SALIO] publicado %s%s",normalizar(nombre),sufijo)
+    return True
 
 def obtener_datetime(item):
-    """
-    Convierte cualquier fecha/hora proveniente del JSON a
-    America/Argentina/Buenos_Aires.
-
-    Prioridad:
-    1. datetime
-    2. datetime_iso
-    3. tiempo_str / tiempo / hora
-
-    Una fecha sin zona se interpreta como hora Argentina.
-    Una fecha con zona/offset se convierte a hora Argentina.
-    """
-    dt = item.get("datetime")
-
-    if isinstance(dt, datetime):
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=ZONA_ARGENTINA)
-        return dt.astimezone(ZONA_ARGENTINA)
-
-    iso = str(item.get("datetime_iso", "")).strip()
-
+    dt=item.get("datetime")
+    if isinstance(dt,datetime):
+        return dt if dt.tzinfo else dt.replace(tzinfo=ZONA_ARGENTINA)
+    iso=str(item.get("datetime_iso","")).strip()
     if iso:
         try:
-            dt = datetime.fromisoformat(iso)
-
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=ZONA_ARGENTINA)
-
-            return dt.astimezone(ZONA_ARGENTINA)
-
-        except Exception:
-            pass
-
-    tiempo = str(
-        item.get("tiempo_str")
-        or item.get("tiempo")
-        or item.get("hora")
-        or ""
-    ).strip()
-
-    if not tiempo or tiempo.upper() in {"VIVO", "ALIVE", "-", "NONE"}:
-        return None
-
-    for fmt in ("%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M"):
+            dt=datetime.fromisoformat(iso)
+            return dt if dt.tzinfo else dt.replace(tzinfo=ZONA_ARGENTINA)
+        except Exception: pass
+    tiempo=str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
+    if not tiempo or tiempo.upper() in {"VIVO","ALIVE","-","NONE"}: return None
+    for fmt in ("%d/%m/%Y %H:%M","%d-%m-%Y %H:%M"):
+        try: return datetime.strptime(tiempo,fmt).replace(tzinfo=ZONA_ARGENTINA)
+        except ValueError: pass
+    if len(tiempo)==5 and tiempo[2]==":":
         try:
-            return datetime.strptime(tiempo, fmt).replace(
-                tzinfo=ZONA_ARGENTINA
-            )
-        except ValueError:
-            pass
-
-    if len(tiempo) == 5 and tiempo[2] == ":":
-        try:
-            h, m = map(int, tiempo.split(":"))
-            ahora = datetime.now(ZONA_ARGENTINA)
-
-            return ahora.replace(
-                hour=h,
-                minute=m,
-                second=0,
-                microsecond=0,
-            )
-        except Exception:
-            pass
-
+            h,m=map(int,tiempo.split(":")); ahora=datetime.now(ZONA_ARGENTINA)
+            return ahora.replace(hour=h,minute=m,second=0,microsecond=0)
+        except Exception: pass
     return None
 
-
-def obtener_estado(item):
-    """
-    Obtiene el estado VIVO/MUERTO del registro.
-    """
-    posibles = (
-        item.get("estado"),
-        item.get("status"),
-        item.get("vivo_muerto"),
-        item.get("vivo_o_muerto"),
-    )
-
-    for valor in posibles:
-        if valor is not None:
-            texto = str(valor).strip().lower()
-
-            if texto in {"vivo", "alive"}:
-                return "vivo"
-
-            if texto in {"muerto", "dead"}:
-                return "muerto"
-
-    return None
-
+async def procesar_por_hora(bot_instance,item,lista,ahora):
+    if not isinstance(item,dict): return
+    nombre=normalizar(item.get("nombre"))
+    if not nombre or not filtro_ok(nombre,lista): return
+    programado=obtener_datetime(item)
+    if not programado or programado.date()!=ahora.date(): return
+    diferencia=(ahora-programado).total_seconds()
+    if diferencia<0 or diferencia>300: return
+    fecha=programado.strftime("%Y-%m-%d")
+    clave=f"{nombre}|{fecha}|salio"
+    if nombre in {"valakas","antharas","fafureon"}:
+        sufijo="4"
+    else:
+        sufijo="2"
+    if await publicar(bot_instance,nombre,sufijo,programado,clave):
+        logger.info("[SALIO] %s detectado por hora %s",nombre,programado.strftime("%H:%M"))
 
 def reset_memorias(ahora):
     global ULTIMO_RESET_DIA
-
-    dia = ahora.strftime("%Y-%m-%d")
-
-    if ahora.hour >= 4 and ULTIMO_RESET_DIA != dia:
+    dia=ahora.strftime("%Y-%m-%d")
+    if ahora.hour>=4 and ULTIMO_RESET_DIA!=dia:
         MEMORIA_DUPLICADOS.clear()
-        MEMORIA_SALIDA_ESPECIALES.clear()
-        ESTADO_ANTERIOR_VIVO_MUERTO.clear()
-
-        ULTIMO_RESET_DIA = dia
-
+        ULTIMO_RESET_DIA=dia
         logger.info("Memorias SALIO limpiadas a las 04:00 Argentina.")
 
-
-async def publicar(bot, nombre, sufijo, hora=None, clave=None):
-    if clave and clave in MEMORIA_DUPLICADOS:
-        return False
-
-    ruta = plantilla(nombre, sufijo)
-
-    if not ruta:
-        logger.warning(
-            "No existe plantilla SALIO: %s%s",
-            normalizar(nombre),
-            sufijo,
-        )
-        return False
-
-    principal = await canal(
-        bot,
-        getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None),
-    )
-
-    if not principal:
-        return False
-
-    img = None
-    buf = None
-
-    if hora is not None:
-        img = Image.open(ruta).convert("RGBA")
-        estampar(img, hora.strftime("%H:%M"))
-
-        buf = io.BytesIO()
-        img.convert("RGB").save(buf, "PNG")
-        buf.seek(0)
-
-        await principal.send(
-            file=discord.File(
-                buf,
-                filename=f"{normalizar(nombre)}{sufijo}.png",
-            )
-        )
-    else:
-        with open(ruta, "rb") as f:
-            await principal.send(
-                file=discord.File(
-                    f,
-                    filename=f"{normalizar(nombre)}{sufijo}.png",
-                )
-            )
-
-    if normalizar(nombre) in RAIDS_DUPLICADOS:
-        prueba = await canal(bot, CANAL_DUPLICADO_PRUEBA)
-
-        if prueba:
-            if hora is not None:
-                buf2 = io.BytesIO()
-                img.convert("RGB").save(buf2, "PNG")
-                buf2.seek(0)
-
-                await prueba.send(
-                    file=discord.File(
-                        buf2,
-                        filename=f"{normalizar(nombre)}{sufijo}.png",
-                    )
-                )
-
-                buf2.close()
-
-            else:
-                with open(ruta, "rb") as f:
-                    await prueba.send(
-                        file=discord.File(
-                            f,
-                            filename=f"{normalizar(nombre)}{sufijo}.png",
-                        )
-                    )
-
-    if buf:
-        buf.close()
-
-    if clave:
-        MEMORIA_DUPLICADOS.add(clave)
-
-    logger.info(
-        "[SALIO] publicado %s%s",
-        normalizar(nombre),
-        sufijo,
-    )
-
-    return True
-
-
-async def procesar_especial_vivo_muerto(
-    bot_instance,
-    item,
-    lista,
-    ahora,
-):
-    """
-    Los 11 raids especiales NO se consideran salidos simplemente
-    porque llegue la fecha/hora programada.
-
-    Su nacimiento real se confirma cuando el estado de la página
-    cambia de MUERTO a VIVO.
-
-    La fecha/hora del JSON solamente se utiliza como referencia
-    para no aceptar una fecha futura.
-    """
-    if lista != "vivo_o_muerto":
-        return
-
-    nombre = normalizar(item.get("nombre"))
-
-    if not nombre or nombre not in RAIDS_VIVO_O_MUERTO:
-        return
-
-    if not filtro_ok(nombre, lista):
-        return
-
-    estado = obtener_estado(item)
-
-    if estado is None:
-        return
-
-    anterior = ESTADO_ANTERIOR_VIVO_MUERTO.get(nombre)
-
-    # Primera lectura: solamente guardamos el estado.
-    # No publicamos para evitar falsos "SALIO" al reiniciar el bot.
-    if anterior is None:
-        ESTADO_ANTERIOR_VIVO_MUERTO[nombre] = estado
-        return
-
-    ESTADO_ANTERIOR_VIVO_MUERTO[nombre] = estado
-
-    # Solamente MUERTO -> VIVO confirma que realmente nació.
-    if anterior != "muerto" or estado != "vivo":
-        return
-
-    programado = obtener_datetime(item)
-
-    # Si existe fecha en el JSON, nunca aceptamos una fecha futura.
-    if programado and programado.date() > ahora.date():
-        logger.info(
-            "[SALIO] %s está VIVO pero su fecha JSON es futura: %s",
-            nombre,
-            programado.strftime("%Y-%m-%d %H:%M"),
-        )
-        return
-
-    fecha = (
-        programado.strftime("%Y-%m-%d")
-        if programado
-        else ahora.strftime("%Y-%m-%d")
-    )
-
-    # Valakas y Antharas usan 4 al detectar el nacimiento.
-    # Fafureon también usa 4.
-    # Los restantes usan 2.
-    sufijo = "4" if nombre in {
-        "valakas",
-        "antharas",
-        "fafureon",
-    } else "2"
-
-    clave = f"{nombre}|{fecha}|salio"
-
-    if await publicar(
-        bot_instance,
-        nombre,
-        sufijo,
-        ahora,
-        clave,
-    ):
-        MEMORIA_SALIDA_ESPECIALES[nombre] = ahora
-
-        logger.info(
-            "[SALIO] %s detectado por VIVO/MUERTO: MUERTO -> VIVO a %s",
-            nombre,
-            ahora.strftime("%d-%m-%Y %H:%M"),
-        )
-
-
-async def procesar_segundo_mensaje_especial(
-    bot_instance,
-    nombre,
-    ahora,
-):
-    """
-    Valakas y Antharas tienen una segunda plantilla (+30 minutos)
-    si existe la plantilla correspondiente.
-    """
-    nombre = normalizar(nombre)
-
-    if nombre not in {"valakas", "antharas"}:
-        return
-
-    inicio = MEMORIA_SALIDA_ESPECIALES.get(nombre)
-
-    if not inicio:
-        return
-
-    if ahora - inicio < timedelta(minutes=30):
-        return
-
-    fecha = inicio.strftime("%Y-%m-%d")
-    clave = f"{nombre}|{fecha}|salio_30"
-
-    if clave in MEMORIA_DUPLICADOS:
-        return
-
-    await publicar(
-        bot_instance,
-        nombre,
-        "5",
-        ahora,
-        clave,
-    )
-
-
-async def procesar_por_hora(
-    bot_instance,
-    item,
-    lista,
-    ahora,
-):
-    """
-    Para los raids que NO pertenecen a los 11 especiales,
-    la salida se determina por la fecha/hora del JSON.
-
-    Ventana: desde la hora programada hasta 5 minutos después.
-    """
-    if not isinstance(item, dict):
-        return
-
-    nombre = normalizar(item.get("nombre"))
-
-    if not nombre or nombre in RAIDS_VIVO_O_MUERTO:
-        return
-
-    if not filtro_ok(nombre, lista):
-        return
-
-    programado = obtener_datetime(item)
-
-    if not programado:
-        return
-
-    # Nunca publicamos raids de otra fecha.
-    if programado.date() != ahora.date():
-        return
-
-    diferencia = (ahora - programado).total_seconds()
-
-    if diferencia < 0 or diferencia > 300:
-        return
-
-    fecha = programado.strftime("%Y-%m-%d")
-    clave = f"{nombre}|{fecha}|salio"
-
-    # Los raids normales usan plantilla 2.
-    sufijo = "2"
-
-    if await publicar(
-        bot_instance,
-        nombre,
-        sufijo,
-        programado,
-        clave,
-    ):
-        logger.info(
-            "[SALIO] %s detectado por fecha/hora %s",
-            nombre,
-            programado.strftime("%d-%m-%Y %H:%M"),
-        )
-
-
-async def servicio_publicar_raids_salio(
-    bot_instance,
-    ruta_json,
-    json_lock,
-):
+async def servicio_publicar_raids_salio(bot_instance,ruta_json,json_lock):
     await bot_instance.wait_until_ready()
-
-    logger.info(
-        "Servicio PUBLICAR_RAIDS_SALIO iniciado correctamente."
-    )
-
+    logger.info("Servicio PUBLICAR_RAIDS_SALIO iniciado correctamente.")
     while not bot_instance.is_closed():
         try:
-            ahora = datetime.now(ZONA_ARGENTINA)
-            reset_memorias(ahora)
-
+            ahora=datetime.now(ZONA_ARGENTINA); reset_memorias(ahora)
             if os.path.exists(ruta_json):
                 async with json_lock:
-                    with open(ruta_json, encoding="utf-8") as f:
-                        data = json.load(f)
-
-                for item, lista in cargar_raids(data):
-                    nombre = normalizar(item.get("nombre"))
-
-                    if nombre in RAIDS_VIVO_O_MUERTO:
-                        await procesar_especial_vivo_muerto(
-                            bot_instance,
-                            item,
-                            lista,
-                            ahora,
-                        )
-                    else:
-                        await procesar_por_hora(
-                            bot_instance,
-                            item,
-                            lista,
-                            ahora,
-                        )
-
-                # La segunda publicación de Valakas/Antharas
-                # se comprueba en cada ciclo de 30 segundos.
-                for nombre in ("valakas", "antharas"):
-                    await procesar_segundo_mensaje_especial(
-                        bot_instance,
-                        nombre,
-                        ahora,
-                    )
-
+                    with open(ruta_json,encoding="utf-8") as f: data=json.load(f)
+                for item,lista in cargar_raids(data):
+                    await procesar_por_hora(bot_instance,item,lista,ahora)
         except Exception as e:
-            logger.exception(
-                "Error en PUBLICAR_RAIDS_SALIO: %s",
-                e,
-            )
-
+            logger.exception("Error en PUBLICAR_RAIDS_SALIO: %s",e)
         await asyncio.sleep(30)
+
