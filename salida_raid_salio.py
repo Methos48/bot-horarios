@@ -28,29 +28,11 @@ RECURSOS_NUMEROS = {
 
 # --- DICCIONARIO MAESTRO DE CONTROL DE RAIDS ---
 CONFIG_RAIDS_PUBLICAR = {
-    "valakas": "si",
-    "antharas": "si",
-    "fafurion": "si",
-    "fafureon": "si",
-    "balrog": "no",
-    "electrical": "no",
-    "baium": "si",
-    "zaken": "si",
-    "core": "si",
-    "orfen": "si",
-    "queenant": "si",
-    "frintezza": "si",
-    "freya": "si",
-    "zariche": "si",
-    "decarbia": "si",
-    "hekaton": "si",
-    "queenshyeed": "si",
-    "golkonda": "si",
-    "galaxia": "si",
-    "barakiel": "si",
-    # Comodines globales para los demás raids que no están listados arriba individualmente
-    "otros_60_mas": "no", 
-    "otros_60_menos": "no"
+    "valakas": "si", "antharas": "si", "fafureon": "si", 
+    "balrog": "no", "electrical": "no",
+    "baium": "si", "zaken": "si", "core": "si", "orfen": "si", "queenant": "si", "frintezza": "si", "freya": "si", "zariche": "si",
+    "decarbia": "si", "hekaton": "si", "queenshyeed": "si", "golkonda": "si", "galaxia": "si", "barakiel": "si",
+    "otros_60_mas": "no",  "otros_60_menos": "no"
 }
 
 # Listas auxiliares para la lógica interna de tipos y temporizadores
