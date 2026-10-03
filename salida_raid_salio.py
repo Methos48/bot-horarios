@@ -61,8 +61,8 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
 
 def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino):
     """
-    Estampa la hora centrada horizontalmente en la parte inferior de la imagen 
-    usando los recursos numéricos configurados.
+    Redimensiona los números a un tamaño más pequeño y los estampa 
+    centrados horizontalmente en la parte inferior de la imagen.
     """
     try:
         from PIL import Image
@@ -71,33 +71,43 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
 
         digitos_cargados = []
         ancho_bloque_total = 0
-        espaciado = 4  # Espacio en píxeles entre cada dígito
+        espaciado = 4  # Espacio en píxeles entre cada número
+
+        # FACTOR DE ESCALA: 0.4 significa que los números se reducirán al 40% de su tamaño original.
+        # Si los quieres un poco más grandes o más chicos, puedes ajustar este valor (ej. 0.3 o 0.5).
+        factor_escala = 0.4
 
         for char in hora_texto:
             ruta_digito = RECURSOS_NUMEROS.get(char)
             if ruta_digito and os.path.exists(ruta_digito):
                 digito_img = Image.open(ruta_digito).convert("RGBA")
+                
+                # Redimensionamos proporcionalmente el dígito
+                nuevo_ancho = int(digito_img.width * factor_escala)
+                nuevo_alto = int(digito_img.height * factor_escala)
+                digito_img = digito_img.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
+                
                 digitos_cargados.append(digito_img)
-                ancho_bloque_total += digito_img.width
+                ancho_bloque_total += nuevo_ancho
             else:
                 digitos_cargados.append(None)
-                ancho_bloque_total += 30  # Respaldo si falta algún recurso
+                ancho_bloque_total += 20
 
         if len(digitos_cargados) > 1:
             ancho_bloque_total += espaciado * (len(digitos_cargados) - 1)
 
-        # Centrado horizontal automático
+        # Centrado horizontal automático con el nuevo ancho reducido
         pos_x = (ancho_total_img - ancho_bloque_total) // 2
         
-        # Coordenada Y (puedes cambiar el porcentaje 0.76 si necesitas subir o bajar la hora)
-        pos_y = int(alto_total_img * 0.76)
+        # Coordenada Y: Ajustada un poco más abajo para que encaje perfectamente en la franja negra
+        pos_y = int(alto_total_img * 0.78)
 
         for digito_img in digitos_cargados:
             if digito_img:
                 base_img.paste(digito_img, (pos_x, pos_y), digito_img)
                 pos_x += digito_img.width + espaciado
             else:
-                pos_x += 30 + espaciado
+                pos_x += 20 + espaciado
 
         base_img.save(ruta_imagen_destino, "PNG")
         return True
@@ -113,12 +123,10 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
     logger.info("🧪 [PRUEBA] El bot se ha conectado. Ejecutando envío inmediato de prueba para Antharas...")
 
     try:
-        # Canal específico solicitado para la prueba
         canal_id = 1551217678386208879
         canal = bot_instance.get_channel(canal_id)
         
         if not canal:
-            # Intento alternativo por fetch si get_channel devuelve None
             try:
                 canal = await bot_instance.fetch_channel(canal_id)
             except Exception as e:
@@ -129,7 +137,6 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
             nombre_raid = "Antharas"
             sufijo = "4"
             
-            # Buscar la imagen en la ruta indicada o en el catálogo
             nombre_archivo = f"{nombre_raid.lower()}{sufijo}.png"
             ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
 
@@ -141,7 +148,6 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hora_actual_24h = ahora_arg.strftime("%H:%M")
                 
-                # Crear ruta temporal para la imagen modificada con la hora
                 ruta_temp_modificada = f"imagen/raid/raid/antes/{nombre_raid.lower()}_prueba_modificada.png"
                 
                 ruta_final_envio = ruta_img
@@ -150,18 +156,17 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
 
                 with open(ruta_final_envio, "rb") as binary:
                     await canal.send(
-                        content=f"🧪 **[PRUEBA DE CALIBRACIÓN]** Antharas publicado a las `{hora_actual_24h}`",
+                        content=f"🧪 **[PRUEBA DE TAMAÑO]** Antharas publicado a las `{hora_actual_24h}`",
                         file=discord.File(binary, filename=f"raid_{nombre_raid.lower()}_salio_{sufijo}.png")
                     )
-                logger.info(f"✅ [PRUEBA] Imagen de Antharas enviada con éxito al canal {canal_id} con la hora {hora_actual_24h}.")
+                logger.info(f"✅ [PRUEBA] Imagen de Antharas enviada con éxito al canal {canal_id} con la hora reducida.")
             else:
-                logger.error("❌ [PRUEBA] No se encontró la imagen de Antharas en la ruta especificada ni en el catálogo.")
+                logger.error("❌ [PRUEBA] No se encontró la imagen de Antharas.")
         else:
             logger.error(f"❌ [PRUEBA] El canal con ID {canal_id} no existe o el bot no tiene acceso.")
 
     except Exception as e:
         logger.error(f"❌ [PRUEBA] Error crítico ejecutando la prueba: {e}")
 
-    # Este servicio de prueba se mantiene en bucle pasivo para no romper la ejecución general del bot
     while not bot_instance.is_closed():
         await asyncio.sleep(60)
