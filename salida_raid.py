@@ -25,7 +25,7 @@ FILTRO_PUBLICAR_RAIDS = {
     "valakas":"si","antharas":"si","fafureon":"si","balrog":"no","electrical":"no",
     "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si","frintezza":"si",
     "freya":"si","zariche":"si","decarbia":"si","hekaton":"si","queenshyeed":"si",
-    "golkonda":"si","galaxia":"si","barakiel":"si","otros_60_mas":"no","otros_60_menos":"no"
+    "golkonda":"si","galaxia":"si","barakiel":"si","otros_60_mas":"si","otros_60_menos":"no"
 }
 FILTRO_PUBLICAR_RAIDS_ANTES = {
     "valakas":"si","antharas":"si","fafureon":"si","balrog":"si","electrical":"si",
@@ -68,6 +68,8 @@ def tiempo_item(item):
     return item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or ""
 
 def cargar_raids(data):
+    # IMPORTANTE: se monitorean TODAS las listas.
+    # El filtro se aplica solamente al momento de publicar.
     for lista in ("raid_60_plus", "raid_60_menos", "vivo_o_muerto"):
         valores = data.get(lista, [])
         if isinstance(valores, list):
@@ -153,9 +155,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         dt = parsear_fecha(tiempo_item(item))
                         if not dt:
                             continue
-
                         if nombre in {"valakas","antharas","fafureon"}:
-                            # La hora impresa es siempre la original menos 30 minutos.
                             impresa = dt - timedelta(minutes=30)
                             ventanas = [
                                 (dt.replace(hour=10,minute=0,second=0,microsecond=0)-timedelta(days=1),"m","dia_anterior_10"),
@@ -163,12 +163,10 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 (dt.replace(hour=18,minute=0,second=0,microsecond=0),"h","mismo_dia_18"),
                             ]
                         else:
-                            # Solo raids que salen hoy entre 16:00 y 23:59.
                             if dt.date() != ahora.date() or not (16 <= dt.hour <= 23):
                                 continue
                             ventanas = [(dt.replace(hour=14,minute=0,second=0,microsecond=0),dt.strftime("%H%M"),"normal_1400")]
                             impresa = dt
-
                         for inicio,sufijo,ventana in ventanas:
                             if not (inicio <= ahora < inicio + timedelta(minutes=5)):
                                 continue
