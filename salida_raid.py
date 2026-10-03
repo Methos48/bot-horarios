@@ -52,12 +52,6 @@ FILTRO_PUBLICAR_RAIDS_ANTES = {
     "otros_60_mas": "si", "otros_60_menos": "no"
 }
 
-# Lista de épicos y dragones para validaciones de doble canal en ANTES
-EPICOS_Y_DRAGONES = [
-    "Baium", "Zaken", "Core", "Orfen", "Queen Ant", 
-    "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"
-]
-
 # ==========================================
 # FUNCIONES AUXILIARES VISUALES
 # ==========================================
@@ -176,7 +170,6 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         # Parseo formato DD-MM-AAAA HH:MM del JSON
                         match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
                         if not match_dt:
-                            # Compatibilidad por si viene solo hora suelta
                             match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
                             if not match_hora:
                                 continue
@@ -252,14 +245,13 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
         await asyncio.sleep(30)
 
 # ==========================================
-# SERVICIO 2: PUBLICAR_RAIDS_ANTES
+# SERVICIO 2: PUBLICAR_RAIDS_ANTES (Solo ENVIAR_MENSAJE_CHANNEL_ID)
 # ==========================================
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
             limpiar_memoria_cache_diaria()
             canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
-            canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
             
             if canal_principal_id and os.path.exists(ruta_json):
                 async with json_lock:
@@ -273,7 +265,6 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                 todos_los_jefes = list(raid_60_plus) + list(raid_60_menos) + list(vivo_o_muerto)
                 
                 channel_principal = bot_instance.get_channel(canal_principal_id)
-                channel_clan = bot_instance.get_channel(canal_clan_id) if canal_clan_id else None
 
                 ahora_arg = datetime.now(ZONA_ARGENTINA)
                 hoy_str = ahora_arg.strftime("%Y-%m-%d")
@@ -354,13 +345,6 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                                 if ruta_img and os.path.exists(ruta_img):
                                     with open(ruta_img, "rb") as binary:
                                         await channel_principal.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
-                                    
-                                    if nombre in EPICOS_Y_DRAGONES and channel_clan:
-                                        try:
-                                            with open(ruta_img, "rb") as binary_clan:
-                                                await channel_clan.send(file=discord.File(binary_clan, filename=f"raid_{nombre.lower()}_antes_{sufijo}.png"))
-                                        except Exception as e_clan:
-                                            logger.error(f"❌ Error al enviar aviso ANTES al canal de clan para '{nombre}': {e_clan}")
 
                                     CACHE_ANTES[clave_cache] = True
                                     logger.info(f"✅ [ANTES] Aviso previo enviado para '{nombre}' (Sufijo: {sufijo}).")
