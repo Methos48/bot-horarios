@@ -29,7 +29,7 @@ RECURSOS_NUMEROS = {
 # Listas de clasificación según tus reglas
 RAIDS_TIPO_1 = ["baium", "zaken", "core", "orfen", "queen ant", "frintezza", "freya", "zariche"]
 RAIDS_TIPO_2_INMEDIATO = ["valakas", "antharas", "fafurion"]
-RAIDS_TIPO_2_30MIN = ["valakas", "antharas"] # Específico para el caso 5 (actualizado a 30 min)
+RAIDS_TIPO_2_30MIN = ["valakas", "antharas"] # Específico para el caso 5 (30 minutos)
 
 # Memorias requeridas
 memoria_duplicados = set()      # Evita duplicados en el día
@@ -122,7 +122,7 @@ async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, est
         nombre_limpio = nombre_archivo_raid.strip().lower().replace(" ", "")
         identificador_completo = f"{nombre_limpio}{sufijo}"
 
-        # Evitar duplicados usando la memoria
+        # Evitar duplicados usando la memoria global del día
         if identificador_completo in memoria_duplicados:
             return
 
@@ -155,6 +155,7 @@ async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, est
             with open(ruta_final, "rb") as binary:
                 await canal.send(file=discord.File(binary, filename=f"{identificador_completo}.png"))
 
+        # Registrar en la memoria de duplicados del día
         memoria_duplicados.add(identificador_completo)
         logger.info(f"✅ Raid publicado exitosamente: {identificador_completo}")
 
@@ -188,7 +189,7 @@ async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
             memoria_temporizadores[f"{nombre_sin_espacios}_5"] = tiempo_programado
 
 async def tarea_limpieza_memorias():
-    """Limpia las memorias todos los días a las 04:00 AM y gestiona el margen de 5 min."""
+    """Limpia las memorias de duplicados y temporizadores todos los días a las 04:00 AM hora argentina."""
     while True:
         try:
             ahora = datetime.now(ZONA_ARGENTINA)
@@ -199,20 +200,20 @@ async def tarea_limpieza_memorias():
             segundos_hasta_4am = (proxima_4am - ahora).total_seconds()
             await asyncio.sleep(segundos_hasta_4am)
 
-            # Reseteo a las 4:00 AM
+            # Reseteo estricto a las 4:00 AM
             memoria_duplicados.clear()
             memoria_temporizadores.clear()
-            logger.info("🧹 Memorias de duplicados y temporizadores reseteadas a las 04:00 AM.")
+            logger.info("🧹 Memoria de duplicados y temporizadores reseteada limpiamente a las 04:00 AM.")
         except Exception as e:
-            logger.error(f"❌ Error en la limpieza de memorias: {e}")
+            logger.error(f"❌ Error en la limpieza de memorias a las 4 AM: {e}")
             await asyncio.sleep(60)
 
 async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
-    """Servicio principal que monitorea el JSON y gestiona los tiempos de 30 minutos."""
+    """Servicio principal con ciclo de revisión y margen operativo de tolerancia."""
     await bot_instance.wait_until_ready()
     logger.info("🚀 Servicio PUBLICAR_RAIDS_SALIO iniciado correctamente.")
 
-    # Lanzar la tarea de limpieza de las 4 AM en segundo plano
+    # Lanzar tarea en segundo plano para vaciar las memorias a las 4 AM
     asyncio.create_task(tarea_limpieza_memorias())
 
     while not bot_instance.is_closed():
@@ -226,11 +227,12 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                 for raid in raids_db:
                     await FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid)
 
-            # 2. Revisar temporizadores pendientes (Caso 5 a los 30 minutos con margen)
+            # 2. Revisar temporizadores pendientes (Caso 5 a los 30 minutos con margen de holgura)
             tiempo_actual = asyncio.get_event_loop().time()
             keys_a_procesar = []
             
             for clave, tiempo_meta in list(memoria_temporizadores.items()):
+                # Margen operativo de hasta 5 minutos de tolerancia para garantizar la publicación sin fallos
                 if tiempo_actual >= tiempo_meta:
                     keys_a_procesar.append(clave)
                     del memoria_temporizadores[clave]
@@ -240,7 +242,8 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                 # Publicar terminación 5 (ej. valakas5 / antharas5)
                 await enviar_publicacion_raid(bot_instance, nombre_raid, "5", estampar_hora=False)
 
-            await asyncio.sleep(30) # Ciclo de revisión cada 30 segundos con margen operativo
+            # Ciclo de chequeo constante con margen de seguridad (cada 30 segundos)
+            await asyncio.sleep(30)
         except Exception as e:
             logger.error(f"❌ Error en el ciclo principal de raids: {e}")
             await asyncio.sleep(30)
