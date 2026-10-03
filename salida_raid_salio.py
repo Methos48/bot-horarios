@@ -75,7 +75,7 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
 
         # FACTOR DE ESCALA: 0.4 significa que los números se reducirán al 40% de su tamaño original.
         # Si los quieres un poco más grandes o más chicos, puedes ajustar este valor (ej. 0.3 o 0.5).
-        factor_escala = 0.1
+        factor_escala = 0.2
 
         for char in hora_texto:
             ruta_digito = RECURSOS_NUMEROS.get(char)
