@@ -138,13 +138,14 @@ def limpiar_memoria_cache_diaria():
         logger.info("🧹 Memoria caché de los servicios limpiada exitosamente a las 04:00 AM.")
 
 # ==========================================
-# SERVICIO 1: PUBLICAR_RAIDS (Usa MENSAJE_CLAN_CHANNEL_ID)
+# SERVICIO 1: PUBLICAR_RAIDS (Usa ID fijo)
 # ==========================================
 async def servicio_publicar_raids(bot_instance, ruta_json):
     while not bot_instance.is_closed():
         try:
             limpiar_memoria_cache_diaria()
-            canal_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+            canal_id = 1549577944999927999
+            
             if canal_id and os.path.exists(ruta_json):
                 async with json_lock:
                     with open(ruta_json, "r", encoding="utf-8") as f:
@@ -243,7 +244,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 binary.seek(0)
                                 await channel.send(file=discord.File(binary, filename=f"raid_{nombre.lower()}_{sufijo_imagen}.png"))
                                 CACHE_PUBLICAR_RAIDS[clave_cache] = True
-                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito al canal de clan (Ventana: {tipo_ventana}).")
+                                logger.info(f"✅ [PUBLICAR_RAIDS] Raid '{nombre}' enviado con éxito al canal ({canal_id}) (Ventana: {tipo_ventana}).")
                                 await asyncio.sleep(1.5)
         except Exception as e:
             logger.error(f"❌ Error en servicio_publicar_raids: {e}")
