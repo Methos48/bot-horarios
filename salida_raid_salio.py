@@ -13,7 +13,7 @@ import config
 logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config,"TZ","America/Argentina/Buenos_Aires"))
 
-FILTRO_PUBLICAR_RAIDS_SALIO = {
+CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO = {
     "valakas":"si","antharas":"si","fafureon":"si",
     "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si",
     "frintezza":"si","freya":"si","zariche":"si",
@@ -36,11 +36,11 @@ def normalizar(nombre):
     return str(nombre or "").strip().lower().replace(" ","")
 
 def filtro_ok(nombre,lista):
-    if nombre in FILTRO_PUBLICAR_RAIDS_SALIO:
-        return FILTRO_PUBLICAR_RAIDS_SALIO[nombre]=="si"
+    if nombre in CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO:
+        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO[nombre]=="si"
     if lista=="raid_60_plus":
-        return FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_mas","no")=="si"
-    return FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos","no")=="si"
+        return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_mas","no")=="si"
+    return CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO.get("otros_60_menos","no")=="si"
 
 def cargar_raids(data):
     for lista in ("raid_60_plus","raid_60_menos","vivo_o_muerto"):
