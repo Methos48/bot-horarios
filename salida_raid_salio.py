@@ -2,7 +2,7 @@ import os
 import logging
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 import discord
 import config
@@ -11,7 +11,7 @@ logger = logging.getLogger("SalidaRaid")
 
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
-# --- IMPORTACIÓN DE NÚMEROS DESDE CONFIG ---
+# --- IMPORTACIÓN DE NÚMEROS DESDE CONFIG (Para el caso 4 ya ajustado) ---
 RECURSOS_NUMEROS = {
     "0": getattr(config, "NUMERO_0", None),
     "1": getattr(config, "NUMERO_1", None),
@@ -25,6 +25,15 @@ RECURSOS_NUMEROS = {
     "9": getattr(config, "NUMERO_9", None),
     ":": getattr(config, "NUMERO_DOS_PUNTOS", None)
 }
+
+# Listas de clasificación según tus reglas
+RAIDS_TIPO_1 = ["baium", "zaken", "core", "orfen", "queen ant", "frintezza", "freya", "zariche"]
+RAIDS_TIPO_2_INMEDIATO = ["valakas", "antharas", "fafurion"]
+RAIDS_TIPO_2_30MIN = ["valakas", "antharas"] # Específico para el caso 5 (actualizado a 30 min)
+
+# Memorias requeridas
+memoria_duplicados = set()      # Evita duplicados en el día
+memoria_temporizadores = {}     # Controla los 30 minutos para el caso 5
 
 def obtener_catalogo_imagenes_raid():
     directorio_base = getattr(config, "DIR_RAID", "imagen/raid")
@@ -41,7 +50,7 @@ def obtener_catalogo_imagenes_raid():
     return catalogo
 
 def obtener_imagen_raid(catalogo, nombre_base_raid):
-    nombre_limpio = nombre_base_raid.strip().lower()
+    nombre_limpio = nombre_base_raid.strip().lower().replace(" ", "")
     rutas_candidatas = [
         f"raid/antes/{nombre_limpio}.png", 
         f"salio/{nombre_limpio}.png", 
@@ -60,9 +69,7 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
     return None
 
 def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino):
-    """
-    Estampa la hora con el tamaño y posición exactos probados y calibrados.
-    """
+    """Estampa la hora para el caso 4 con la configuración exacta validada."""
     try:
         from PIL import Image
         base_img = Image.open(ruta_imagen_origen).convert("RGBA")
@@ -70,20 +77,16 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
 
         digitos_cargados = []
         ancho_bloque_total = 0
-        espaciado = 4  # Espacio en píxeles entre cada número
-
-        # Configuración exacta validada
+        espaciado = 4  
         factor_escala = 0.15
 
         for char in hora_texto:
             ruta_digito = RECURSOS_NUMEROS.get(char)
             if ruta_digito and os.path.exists(ruta_digito):
                 digito_img = Image.open(ruta_digito).convert("RGBA")
-                
                 nuevo_ancho = int(digito_img.width * factor_escala)
                 nuevo_alto = int(digito_img.height * factor_escala)
                 digito_img = digito_img.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
-                
                 digitos_cargados.append(digito_img)
                 ancho_bloque_total += nuevo_ancho
             else:
@@ -93,10 +96,7 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         if len(digitos_cargados) > 1:
             ancho_bloque_total += espaciado * (len(digitos_cargados) - 1)
 
-        # Centrado horizontal automático
         pos_x = (ancho_total_img - ancho_bloque_total) // 2
-        
-        # Posición vertical exacta validada
         pos_y = int(alto_total_img * 0.83)
 
         for digito_img in digitos_cargados:
@@ -112,43 +112,135 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         logger.error(f"❌ Error al estampar hora en la imagen: {e}")
         return False
 
+async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, estampar_hora=False):
+    """Envía la imagen al canal principal y duplica al canal de clan si aplica."""
+    try:
+        canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+        canal_clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+
+        catalogo = obtener_catalogo_imagenes_raid()
+        nombre_limpio = nombre_archivo_raid.strip().lower().replace(" ", "")
+        identificador_completo = f"{nombre_limpio}{sufijo}"
+
+        # Evitar duplicados usando la memoria
+        if identificador_completo in memoria_duplicados:
+            return
+
+        ruta_img = obtener_imagen_raid(catalogo, identificador_completo)
+        if not ruta_img or not os.path.exists(ruta_img):
+            logger.warning(f"⚠ No se encontró la plantilla para: {identificador_completo}")
+            return
+
+        ruta_final = ruta_img
+        if estampar_hora:
+            ahora_arg = datetime.now(ZONA_ARGENTINA)
+            hora_actual_24h = ahora_arg.strftime("%H:%M")
+            ruta_temp = f"imagen/raid/raid/antes/{identificador_completo}_mod.png"
+            if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp):
+                ruta_final = ruta_temp
+
+        # Canales de destino
+        canales_a_enviar = []
+        if canal_principal_id:
+            c_prin = bot_instance.get_channel(int(canal_principal_id)) or await bot_instance.fetch_channel(int(canal_principal_id))
+            if c_prin: canales_a_enviar.append(c_prin)
+
+        # Duplicar en canal de clan para los raids indicados
+        raids_duplicables = RAIDS_TIPO_1 + RAIDS_TIPO_2_INMEDIATO
+        if nombre_limpio in [r.replace(" ", "") for r in raids_duplicables] and canal_clan_id:
+            c_clan = bot_instance.get_channel(int(canal_clan_id)) or await bot_instance.fetch_channel(int(canal_clan_id))
+            if c_clan: canales_a_enviar.append(c_clan)
+
+        for canal in canales_a_enviar:
+            with open(ruta_final, "rb") as binary:
+                await canal.send(file=discord.File(binary, filename=f"{identificador_completo}.png"))
+
+        memoria_duplicados.add(identificador_completo)
+        logger.info(f"✅ Raid publicado exitosamente: {identificador_completo}")
+
+    except Exception as e:
+        logger.error(f"❌ Error al enviar publicación del raid {nombre_archivo_raid}: {e}")
+
 # ==========================================
-# SERVICIO PRINCIPAL DE PUBLICACIÓN DE RAIDS
+# FILTRO Y SERVICIO PRINCIPAL
 # ==========================================
+async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
+    """Filtra y clasifica el estado del raid según las reglas de negocio."""
+    nombre = raid_data.get("nombre", "").strip().lower()
+    estado = raid_data.get("estado", "").strip().lower() # Espera "vivo" o "muerto"
+    
+    if estado != "vivo":
+        return
+
+    nombre_sin_espacios = nombre.replace(" ", "")
+
+    # Tipo 1: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche -> Terminación 2
+    if nombre in RAIDS_TIPO_1 or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_1]:
+        await enviar_publicacion_raid(bot_instance, nombre, "2", estampar_hora=False)
+
+    # Tipo 2 (Inmediato): Valakas, Antharas, Fafurion -> Terminación 4 (con hora estampada)
+    elif nombre in RAIDS_TIPO_2_INMEDIATO or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_2_INMEDIATO]:
+        await enviar_publicacion_raid(bot_instance, nombre, "4", estampar_hora=True)
+
+        # Programar caso 5 (30 minutos después) únicamente para Valakas y Antharas
+        if nombre in RAIDS_TIPO_2_30MIN or nombre_sin_espacios in [r.replace(" ", "") for r in RAIDS_TIPO_2_30MIN]:
+            tiempo_programado = asyncio.get_event_loop().time() + (30 * 60)
+            memoria_temporizadores[f"{nombre_sin_espacios}_5"] = tiempo_programado
+
+async def tarea_limpieza_memorias():
+    """Limpia las memorias todos los días a las 04:00 AM y gestiona el margen de 5 min."""
+    while True:
+        try:
+            ahora = datetime.now(ZONA_ARGENTINA)
+            proxima_4am = ahora.replace(hour=4, minute=0, second=0, microsecond=0)
+            if ahora >= proxima_4am:
+                proxima_4am = proxima_4am.replace(day=proxima_4am.day + 1)
+            
+            segundos_hasta_4am = (proxima_4am - ahora).total_seconds()
+            await asyncio.sleep(segundos_hasta_4am)
+
+            # Reseteo a las 4:00 AM
+            memoria_duplicados.clear()
+            memoria_temporizadores.clear()
+            logger.info("🧹 Memorias de duplicados y temporizadores reseteadas a las 04:00 AM.")
+        except Exception as e:
+            logger.error(f"❌ Error en la limpieza de memorias: {e}")
+            await asyncio.sleep(60)
+
 async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
+    """Servicio principal que monitorea el JSON y gestiona los tiempos de 30 minutos."""
     await bot_instance.wait_until_ready()
-    logger.info("🚀 Servicio de publicación de raids iniciado correctamente.")
+    logger.info("🚀 Servicio PUBLICAR_RAIDS_SALIO iniciado correctamente.")
+
+    # Lanzar la tarea de limpieza de las 4 AM en segundo plano
+    asyncio.create_task(tarea_limpieza_memorias())
 
     while not bot_instance.is_closed():
         try:
-            # Aquí va la lógica normal de lectura de tu archivo JSON de raids
+            # 1. Revisar cambios en el JSON de raids
             if os.path.exists(ruta_json):
                 async with json_lock:
                     with open(ruta_json, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                        raids_db = json.load(f)
                 
-                # --- EJEMPLO DE USO INTEGRADO PARA ANTHARAS/VALAKAS CON SUFIJO 4 ---
-                # Cada vez que detectes que un raid como Antharas o Valakas con sufijo 4 sale:
-                # (Asegúrate de adaptar esta parte a la estructura de tu bucle de raids actual)
-                
-                # Ejemplo de validación para el envío:
-                # nombre_raid = raid.get("nombre")  # ej: "Antharas" o "Valakas"
-                # sufijo = raid.get("sufijo", "")    # ej: "4"
-                # canal_id = raid.get("canal_id")
-                
-                # Si el nombre es Antharas o Valakas y su sufijo/identificador termina en 4:
-                # if nombre_raid.lower() in ["antharas", "valakas"] and str(sufijo) == "4":
-                #     ruta_img = obtener_imagen_raid(obtener_catalogo_imagenes_raid(), f"{nombre_raid}{sufijo}")
-                #     if ruta_img and os.path.exists(ruta_img):
-                #         ahora_arg = datetime.now(ZONA_ARGENTINA)
-                #         hora_actual_24h = ahora_arg.strftime("%H:%M")
-                #         ruta_temp = f"imagen/raid/raid/antes/{nombre_raid.lower()}_modificada.png"
-                #         
-                #         if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp):
-                #             # Enviar al canal correspondiente con tu lógica de Discord
-                #             pass
+                for raid in raids_db:
+                    await FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid)
 
-            await asyncio.sleep(30) # Comprobación periódica del JSON
+            # 2. Revisar temporizadores pendientes (Caso 5 a los 30 minutos con margen)
+            tiempo_actual = asyncio.get_event_loop().time()
+            keys_a_procesar = []
+            
+            for clave, tiempo_meta in list(memoria_temporizadores.items()):
+                if tiempo_actual >= tiempo_meta:
+                    keys_a_procesar.append(clave)
+                    del memoria_temporizadores[clave]
+
+            for clave in keys_a_procesar:
+                nombre_raid = clave.replace("_5", "")
+                # Publicar terminación 5 (ej. valakas5 / antharas5)
+                await enviar_publicacion_raid(bot_instance, nombre_raid, "5", estampar_hora=False)
+
+            await asyncio.sleep(30) # Ciclo de revisión cada 30 segundos con margen operativo
         except Exception as e:
             logger.error(f"❌ Error en el ciclo principal de raids: {e}")
             await asyncio.sleep(30)
