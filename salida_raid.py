@@ -222,16 +222,18 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                             continue
 
-                        match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                        if not match_hora:
-                            continue
-                        
-                        hora_raid_str = match_hora.group(0)
-                        
-                        fecha_raid_str = hoy_str
-                        match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
-                        if match_fecha:
-                            fecha_raid_str = match_fecha.group(0)
+                        # Parseo formato DD-MM-AAAA HH:MM del JSON
+                        match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
+                        if not match_dt:
+                            # Compatibilidad por si viene solo hora suelta
+                            match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                            if not match_hora:
+                                continue
+                            hora_raid_str = match_hora.group(0)
+                            fecha_raid_str = hoy_str
+                        else:
+                            dia, mes, anio, hora_raid_str = match_dt.groups()
+                            fecha_raid_str = f"{anio}-{mes}-{dia}"
 
                         try:
                             dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
@@ -340,15 +342,17 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                         if not tiempo_bruto or tiempo_bruto in ["-", "None", "null", ""]:
                             continue
 
-                        match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                        if not match_hora:
-                            continue
-                        
-                        hora_raid_str = match_hora.group(0)
-                        fecha_raid_str = hoy_str
-                        match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
-                        if match_fecha:
-                            fecha_raid_str = match_fecha.group(0)
+                        # Parseo formato DD-MM-AAAA HH:MM del JSON
+                        match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
+                        if not match_dt:
+                            match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                            if not match_hora:
+                                continue
+                            hora_raid_str = match_hora.group(0)
+                            fecha_raid_str = hoy_str
+                        else:
+                            dia, mes, anio, hora_raid_str = match_dt.groups()
+                            fecha_raid_str = f"{anio}-{mes}-{dia}"
 
                         if fecha_raid_str != hoy_str:
                             continue
@@ -464,36 +468,39 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json):
                         if nombre not in ["Baium", "Zaken", "Core", "Orfen", "Queen Ant", "Frintezza", "Freya", "Zariche", "Valakas", "Antharas", "Fafureon"]:
                             tiempo_bruto = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
                             if tiempo_bruto and tiempo_bruto not in ["-", "None", "null", ""]:
-                                match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
-                                if match_hora:
+                                match_dt = re.search(r'(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}:\d{2})', tiempo_bruto)
+                                if not match_dt:
+                                    match_hora = re.search(r'\d{1,2}:\d{2}', tiempo_bruto)
+                                    if not match_hora:
+                                        continue
                                     hora_raid_str = match_hora.group(0)
                                     fecha_raid_str = hoy_str
-                                    match_fecha = re.search(r'\d{4}-\d{2}-\d{2}', tiempo_bruto)
-                                    if match_fecha:
-                                        fecha_raid_str = match_fecha.group(0)
+                                else:
+                                    dia, mes, anio, hora_raid_str = match_dt.groups()
+                                    fecha_raid_str = f"{anio}-{mes}-{dia}"
 
-                                    if fecha_raid_str == hoy_str:
-                                        try:
-                                            dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
-                                            
-                                            if dt_raid <= ahora_arg < dt_raid + timedelta(minutes=5):
-                                                sufijo = "2"
-                                                clave_cache_hora = f"{nombre}_{fecha_raid_str}_{hora_raid_str}_hora_exacta"
-                                                if not CACHE_SALIO.get(clave_cache_hora):
-                                                    nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
-                                                    ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
-                                                    
-                                                    if not os.path.exists(ruta_img):
-                                                        catalogo = obtener_catalogo_imagenes_raid()
-                                                        ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
+                                if fecha_raid_str == hoy_str:
+                                    try:
+                                        dt_raid = datetime.strptime(f"{fecha_raid_str} {hora_raid_str}", "%Y-%m-%d %H:%M").replace(tzinfo=ZONA_ARGENTINA)
+                                        
+                                        if dt_raid <= ahora_arg < dt_raid + timedelta(minutes=5):
+                                            sufijo = "2"
+                                            clave_cache_hora = f"{nombre}_{fecha_raid_str}_{hora_raid_str}_hora_exacta"
+                                            if not CACHE_SALIO.get(clave_cache_hora):
+                                                nombre_archivo = f"{nombre.lower().replace(' ', '')}{sufijo}.png"
+                                                ruta_img = f"imagen/raid/raid/antes/{nombre_archivo}"
+                                                
+                                                if not os.path.exists(ruta_img):
+                                                    catalogo = obtener_catalogo_imagenes_raid()
+                                                    ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}", "PUBLICAR_RAIDS_SALIO")
 
-                                                    if ruta_img and os.path.exists(ruta_img):
-                                                        await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
-                                                        CACHE_SALIO[clave_cache_hora] = True
-                                                        logger.info(f"✅ [SALIO] Raid común '{nombre}' publicado a su hora exacta ({hora_raid_str}) con terminación {sufijo}.")
-                                                        await asyncio.sleep(1.0)
-                                        except ValueError:
-                                            pass
+                                                if ruta_img and os.path.exists(ruta_img):
+                                                    await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
+                                                    CACHE_SALIO[clave_cache_hora] = True
+                                                    logger.info(f"✅ [SALIO] Raid común '{nombre}' publicado a su hora exacta ({hora_raid_str}) con terminación {sufijo}.")
+                                                    await asyncio.sleep(1.0)
+                                    except ValueError:
+                                        pass
                             continue
 
                         # =========================================================================
