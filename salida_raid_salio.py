@@ -3,7 +3,7 @@ import io
 import json
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import discord
@@ -27,9 +27,7 @@ RAIDS_DUPLICADOS = {"baium","zaken","core","orfen","queenant","frintezza","freya
 NUMEROS={str(i):getattr(config,f"NUMERO_{i}",None) for i in range(10)}
 NUMEROS[":"]=getattr(config,"NUMERO_DOS_PUNTOS",None)
 
-ESTADO_ANTERIOR={}
 MEMORIA_DUPLICADOS=set()
-MEMORIA_30_MIN={}
 ULTIMO_RESET_DIA=None
 
 def normalizar(nombre):
@@ -130,41 +128,50 @@ async def publicar(bot,nombre,sufijo,hora=None,clave=None):
     logger.info("[SALIO] publicado %s%s",normalizar(nombre),sufijo)
     return True
 
-async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance,raid_data,tipo_lista="vivo_o_muerto"):
-    if not isinstance(raid_data,dict): return
-    nombre=normalizar(raid_data.get("nombre"))
-    estado=str(raid_data.get("estado","")).strip().lower()
-    if not nombre: return
+def obtener_datetime(item):
+    dt=item.get("datetime")
+    if isinstance(dt,datetime):
+        return dt if dt.tzinfo else dt.replace(tzinfo=ZONA_ARGENTINA)
+    iso=str(item.get("datetime_iso","")).strip()
+    if iso:
+        try:
+            dt=datetime.fromisoformat(iso)
+            return dt if dt.tzinfo else dt.replace(tzinfo=ZONA_ARGENTINA)
+        except Exception: pass
+    tiempo=str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
+    if not tiempo or tiempo.upper() in {"VIVO","ALIVE","-","NONE"}: return None
+    for fmt in ("%d/%m/%Y %H:%M","%d-%m-%Y %H:%M"):
+        try: return datetime.strptime(tiempo,fmt).replace(tzinfo=ZONA_ARGENTINA)
+        except ValueError: pass
+    if len(tiempo)==5 and tiempo[2]==":":
+        try:
+            h,m=map(int,tiempo.split(":")); ahora=datetime.now(ZONA_ARGENTINA)
+            return ahora.replace(hour=h,minute=m,second=0,microsecond=0)
+        except Exception: pass
+    return None
 
-    # Primero se registra y monitorea el estado de TODOS los raids.
-    # El filtro NO decide si se monitorea: solamente decide si una
-    # transición detectada se publica.
-    anterior=ESTADO_ANTERIOR.get(nombre)
-    ESTADO_ANTERIOR[nombre]=estado
-
-    if anterior!="muerto" or estado!="vivo": return
-
-    # La transición ya fue detectada; recién ahora se aplica el filtro
-    # de publicación.
-    if not filtro_ok(nombre,tipo_lista): return
-
-    ahora=datetime.now(ZONA_ARGENTINA)
-    clave=f"{nombre}|{ahora.date()}|nacimiento"
-    if nombre in {"valakas","antharas"}:
-        if await publicar(bot_instance,nombre,"4",ahora,clave):
-            MEMORIA_30_MIN[nombre]=(asyncio.get_event_loop().time()+1800,ahora.date())
-    elif nombre=="fafureon":
-        await publicar(bot_instance,nombre,"4",None,clave)
-    elif nombre in {"baium","zaken","core","orfen","queenant","frintezza","freya","zariche"}:
-        await publicar(bot_instance,nombre,"2",None,clave)
+async def procesar_por_hora(bot_instance,item,lista,ahora):
+    if not isinstance(item,dict): return
+    nombre=normalizar(item.get("nombre"))
+    if not nombre or not filtro_ok(nombre,lista): return
+    programado=obtener_datetime(item)
+    if not programado or programado.date()!=ahora.date(): return
+    diferencia=(ahora-programado).total_seconds()
+    if diferencia<0 or diferencia>300: return
+    fecha=programado.strftime("%Y-%m-%d")
+    clave=f"{nombre}|{fecha}|salio"
+    if nombre in {"valakas","antharas","fafureon"}:
+        sufijo="4"
+    else:
+        sufijo="2"
+    if await publicar(bot_instance,nombre,sufijo,programado,clave):
+        logger.info("[SALIO] %s detectado por hora %s",nombre,programado.strftime("%H:%M"))
 
 def reset_memorias(ahora):
     global ULTIMO_RESET_DIA
     dia=ahora.strftime("%Y-%m-%d")
     if ahora.hour>=4 and ULTIMO_RESET_DIA!=dia:
-        ESTADO_ANTERIOR.clear()
         MEMORIA_DUPLICADOS.clear()
-        MEMORIA_30_MIN.clear()
         ULTIMO_RESET_DIA=dia
         logger.info("Memorias SALIO limpiadas a las 04:00 Argentina.")
 
@@ -173,28 +180,13 @@ async def servicio_publicar_raids_salio(bot_instance,ruta_json,json_lock):
     logger.info("Servicio PUBLICAR_RAIDS_SALIO iniciado correctamente.")
     while not bot_instance.is_closed():
         try:
-            ahora=datetime.now(ZONA_ARGENTINA)
-            reset_memorias(ahora)
-
-            # +30 min de Valakas/Antharas.
-            ahora_mono=asyncio.get_event_loop().time()
-            for nombre,(objetivo,fecha_nacimiento) in list(MEMORIA_30_MIN.items()):
-                if objetivo <= ahora_mono < objetivo + 300:
-                    clave=f"{nombre}|{fecha_nacimiento}|30min"
-                    await publicar(bot_instance,nombre,"5",None,clave)
-                    del MEMORIA_30_MIN[nombre]
-                elif ahora_mono >= objetivo + 300:
-                    # Si el bot estuvo caído durante la ventana de 5 minutos,
-                    # no publica atrasado.
-                    del MEMORIA_30_MIN[nombre]
-
+            ahora=datetime.now(ZONA_ARGENTINA); reset_memorias(ahora)
             if os.path.exists(ruta_json):
                 async with json_lock:
-                    with open(ruta_json,encoding="utf-8") as f:
-                        data=json.load(f)
+                    with open(ruta_json,encoding="utf-8") as f: data=json.load(f)
                 for item,lista in cargar_raids(data):
-                    await FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance,item,lista)
-
+                    await procesar_por_hora(bot_instance,item,lista,ahora)
         except Exception as e:
             logger.exception("Error en PUBLICAR_RAIDS_SALIO: %s",e)
         await asyncio.sleep(30)
+
