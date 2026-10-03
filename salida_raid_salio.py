@@ -99,7 +99,7 @@ def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino)
         pos_x = (ancho_total_img - ancho_bloque_total) // 2
         
         # Coordenada Y AJUSTADA: 0.81 para bajarlos un poco más en la franja negra
-        pos_y = int(alto_total_img * 0.85)
+        pos_y = int(alto_total_img * 0.83)
 
         for digito_img in digitos_cargados:
             if digito_img:
