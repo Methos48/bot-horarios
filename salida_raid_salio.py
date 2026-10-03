@@ -26,10 +26,37 @@ RECURSOS_NUMEROS = {
     ":": getattr(config, "NUMERO_DOS_PUNTOS", None)
 }
 
-# Listas de clasificación normalizadas sin espacios para evitar errores de coincidencia
-RAIDS_TIPO_1 = ["baium", "zaken", "core", "orfen", "queenant", "frintezza", "freya", "zariche"]
-RAIDS_TIPO_2_INMEDIATO = ["valakas", "antharas", "fafurion"]
+# --- DICCIONARIO MAESTRO DE CONTROL DE RAIDS ---
+CONFIG_RAIDS_PUBLICAR = {
+    "valakas": "si",
+    "antharas": "si",
+    "fafurion": "si",
+    "fafureon": "si",
+    "balrog": "no",
+    "electrical": "no",
+    "baium": "si",
+    "zaken": "si",
+    "core": "si",
+    "orfen": "si",
+    "queenant": "si",
+    "frintezza": "si",
+    "freya": "si",
+    "zariche": "si",
+    "decarbia": "si",
+    "hekaton": "si",
+    "queenshyeed": "si",
+    "golkonda": "si",
+    "galaxia": "si",
+    "barakiel": "si",
+    # Comodines globales para los demás raids que no están listados arriba individualmente
+    "otros_60_mas": "no", 
+    "otros_60_menos": "no"
+}
+
+# Listas auxiliares para la lógica interna de tipos y temporizadores
+RAIDS_TIPO_2_INMEDIATO = ["valakas", "antharas", "fafurion", "fafureon"]
 RAIDS_TIPO_2_30MIN = ["valakas", "antharas"] # Específico para el caso 5 (30 minutos)
+RAIDS_DUPLICABLES_CLAN = ["valakas", "antharas", "fafurion", "fafureon", "baium", "zaken", "core", "orfen", "queenant", "frintezza", "freya", "zariche"]
 
 # Memorias requeridas
 memoria_duplicados = set()      # Evita duplicados en el día
@@ -146,9 +173,8 @@ async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, est
             if c_prin: 
                 canales_a_enviar.append(c_prin)
 
-        # Duplicar en canal de clan para los raids indicados
-        raids_duplicables = RAIDS_TIPO_1 + RAIDS_TIPO_2_INMEDIATO
-        if nombre_limpio in raids_duplicables and canal_clan_id:
+        # Duplicar en canal de clan para los raids indicados en la lista de duplicables
+        if nombre_limpio in RAIDS_DUPLICABLES_CLAN and canal_clan_id:
             c_clan = bot_instance.get_channel(int(canal_clan_id)) or await bot_instance.fetch_channel(int(canal_clan_id))
             if c_clan: 
                 canales_a_enviar.append(c_clan)
@@ -168,7 +194,7 @@ async def enviar_publicacion_raid(bot_instance, nombre_archivo_raid, sufijo, est
 # FILTRO Y SERVICIO PRINCIPAL
 # ==========================================
 async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
-    """Filtra y clasifica el estado del raid según las reglas de negocio."""
+    """Filtra y clasifica el estado del raid usando el diccionario maestro y sus comodines."""
     nombre = raid_data.get("nombre", "").strip().lower()
     estado = raid_data.get("estado", "").strip().lower() # Espera "vivo" o "muerto"
     
@@ -177,12 +203,19 @@ async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
 
     nombre_sin_espacios = nombre.replace(" ", "")
 
-    # Tipo 1: Baium, Zaken, Core, Orfen, Queen Ant, Frintezza, Freya, Zariche -> Terminación 2
-    if nombre_sin_espacios in RAIDS_TIPO_1:
-        await enviar_publicacion_raid(bot_instance, nombre, "2", estampar_hora=False)
+    # 1. Comprobación maestra con comodines:
+    # Si el raid exacto está en el diccionario, usa su valor ("si" o "no").
+    # Si NO está en el diccionario, evaluará por defecto el comodín "otros_60_mas" (o "otros_60_menos").
+    decision = CONFIG_RAIDS_PUBLICAR.get(
+        nombre_sin_espacios, 
+        CONFIG_RAIDS_PUBLICAR.get("otros_60_mas", "no")
+    )
 
-    # Tipo 2 (Inmediato): Valakas, Antharas, Fafurion -> Terminación 4 (con hora estampada)
-    elif nombre_sin_espacios in RAIDS_TIPO_2_INMEDIATO:
+    if decision != "si":
+        return
+
+    # 2. Clasificación según el tipo (Tipo 2 Inmediato con hora o Tipo 1 estándar)
+    if nombre_sin_espacios in RAIDS_TIPO_2_INMEDIATO:
         await enviar_publicacion_raid(bot_instance, nombre, "4", estampar_hora=True)
 
         # Programar caso 5 (30 minutos después) únicamente para Valakas y Antharas
@@ -192,6 +225,9 @@ async def FILTRO_PUBLICAR_RAIDS_SALIO(bot_instance, raid_data):
             if clave_temp not in memoria_temporizadores:
                 tiempo_programado = asyncio.get_event_loop().time() + (30 * 60)
                 memoria_temporizadores[clave_temp] = tiempo_programado
+    else:
+        # Cualquier otro raid permitido se publica como Tipo 1 (terminación 2)
+        await enviar_publicacion_raid(bot_instance, nombre, "2", estampar_hora=False)
 
 async def tarea_limpieza_memorias():
     """Limpia las memorias de duplicados y temporizadores todos los días a las 04:00 AM hora argentina."""
@@ -210,7 +246,7 @@ async def tarea_limpieza_memorias():
             memoria_temporizadores.clear()
             logger.info("🧹 Memoria de duplicados y temporizadores reseteada limpiamente a las 04:00 AM.")
         except Exception as e:
-            logger.error(f"❌ Error en la limpieza de memorias a las 4 AM: {e}")
+            logger.error(f"❌ Error en la limpieza de memorias al as 4 AM: {e}")
             await asyncio.sleep(60)
 
 async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
