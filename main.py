@@ -20,6 +20,7 @@ import salida_ma
 import salida_ronda
 import salida_raid
 import salida_low
+import salida_raid_salio  # <-- 1. Importado el servicio de Raids Salió
 
 # Configuración de logs limpia
 logging.basicConfig(
@@ -38,6 +39,9 @@ HORA_OFFSET_WEB = 1
 
 # --- ARCHIVO DE PERSISTENCIA JSON ---
 ARCHIVO_JSON = "jefes_activos.json"
+
+# --- BLOQUEO ASÍNCRONO PARA EL JSON ---
+json_lock = asyncio.Lock()  # <-- 2. Bloqueo para lectura/escritura segura de archivos JSON
 
 # --- LISTA OFICIAL DE JEFES ÉPICOS (Los de la imagen) ---
 JEFES_EPICOS_IMAGEN = {
@@ -413,6 +417,12 @@ async def on_ready():
     bot.loop.create_task(salida_raid.iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
     logger.info("🚀 Tarea en segundo plano 'iniciar_monitoreo_permanente_raids' lanzada con éxito.")
 
+    # =========================================================================
+    # ⚡ ACTIVACIÓN DEL SERVICIO DE RAIDS SALIÓ EN SEGUNDO PLANO
+    # =========================================================================
+    bot.loop.create_task(salida_raid_salio.servicio_publicar_raids_salio(bot, ruta_json=ARCHIVO_JSON, json_lock=json_lock))
+    logger.info("🟢 Tarea en segundo plano 'servicio_publicar_raids_salio' lanzada con éxito.")
+
 @tasks.loop(seconds=60)
 async def auto_monitor_web():
     try:
@@ -451,16 +461,17 @@ async def auto_monitor_web():
                 dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
             fusion_r60_plus = list(dict_r60_plus_actual.values())
 
-            if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto):
-                MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
-                MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
-                guardar_memoria_a_json_completa()
-                await disparar_salida_ronda_si_cambio(bot)
+            async with json_lock:
+                if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto):
+                    MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
+                    MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
+                    guardar_memoria_a_json_completa()
+                    await disparar_salida_ronda_si_cambio(bot)
 
-            if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-                guardar_memoria_a_json_completa()
-                await disparar_salida_low_si_cambio(bot)
+                if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
+                    MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                    guardar_memoria_a_json_completa()
+                    await disparar_salida_low_si_cambio(bot)
 
     except Exception as e:
         logger.error(f"Error en monitoreo web: {e}")
@@ -517,9 +528,10 @@ async def on_message(message):
                             reg["fue_vivo"] = False
                         dict_combinado[nombre] = reg
 
-                MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
-
-                guardar_memoria_a_json_completa()
+                async with json_lock:
+                    MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
+                    guardar_memoria_a_json_completa()
+                
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                 
                 await disparar_salidas_manuales(bot, nuevos_registros)
