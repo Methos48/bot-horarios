@@ -32,7 +32,7 @@ CONFIG_RAIDS_PUBLICAR = {
     "balrog": "no", "electrical": "no",
     "baium": "si", "zaken": "si", "core": "si", "orfen": "si", "queenant": "si", "frintezza": "si", "freya": "si", "zariche": "si",
     "decarbia": "si", "hekaton": "si", "queenshyeed": "si", "golkonda": "si", "galaxia": "si", "barakiel": "si",
-    "otros_60_mas": "no",  "otros_60_menos": "no"
+    "otros_60_mas": "si",  "otros_60_menos": "no"
 }
 
 # Listas auxiliares para la lógica interna de tipos y temporizadores
