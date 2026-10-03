@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import discord
+from PIL import Image
 import config
 
 logger = logging.getLogger("SalidaRaidSalio")
@@ -14,17 +15,17 @@ ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"
 
 # --- IMPORTACIÓN DE NÚMEROS DESDE CONFIG ---
 RECURSOS_NUMEROS = {
-    "0": config.NUMERO_0,
-    "1": config.NUMERO_1,
-    "2": config.NUMERO_2,
-    "3": config.NUMERO_3,
-    "4": config.NUMERO_4,
-    "5": config.NUMERO_5,
-    "6": config.NUMERO_6,
-    "7": config.NUMERO_7,
-    "8": config.NUMERO_8,
-    "9": config.NUMERO_9,
-    ":": config.NUMERO_DOS_PUNTOS
+    "0": getattr(config, "NUMERO_0", None),
+    "1": getattr(config, "NUMERO_1", None),
+    "2": getattr(config, "NUMERO_2", None),
+    "3": getattr(config, "NUMERO_3", None),
+    "4": getattr(config, "NUMERO_4", None),
+    "5": getattr(config, "NUMERO_5", None),
+    "6": getattr(config, "NUMERO_6", None),
+    "7": getattr(config, "NUMERO_7", None),
+    "8": getattr(config, "NUMERO_8", None),
+    "9": getattr(config, "NUMERO_9", None),
+    ":": getattr(config, "NUMERO_DOS_PUNTOS", None)
 }
 
 # Cachés y estados exclusivos para el servicio de Salió
@@ -88,6 +89,36 @@ def obtener_imagen_raid(catalogo, nombre_base_raid):
         if nombre_limpio in clave:
             return ruta_completa
     return None
+
+def estampar_hora_en_imagen(ruta_imagen_origen, hora_texto, ruta_imagen_destino):
+    """
+    Pega los gráficos numéricos de RECURSOS_NUMEROS sobre la imagen base
+    formando la hora en formato 24 horas (ej. 23:15).
+    """
+    try:
+        base_img = Image.open(ruta_imagen_origen).convert("RGBA")
+        
+        # Coordenadas iniciales (X, Y) donde empezará a dibujarse la hora en la imagen.
+        # Puedes ajustar estos valores según el diseño de tu banner/imagen.
+        pos_x = 50 
+        pos_y = 50 
+        espaciado = 2 # Pixeles entre cada número
+
+        for char in hora_texto:
+            ruta_digito = RECURSOS_NUMEROS.get(char)
+            if ruta_digito and os.path.exists(ruta_digito):
+                digito_img = Image.open(ruta_digito).convert("RGBA")
+                base_img.paste(digito_img, (pos_x, pos_y), digito_img)
+                pos_x += digito_img.width + espaciado
+            else:
+                # Si falta algún recurso, avanzamos un espacio por defecto para no romper el flujo
+                pos_x += 20
+
+        base_img.save(ruta_imagen_destino, "PNG")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error al estampar hora en la imagen: {e}")
+        return False
 
 async def enviar_a_canales_salio(bot_instance, ruta_imagen, nombre_archivo_discord, nombre_raid=""):
     canal_principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
@@ -212,7 +243,19 @@ async def servicio_publicar_raids_salio(bot_instance, ruta_json, json_lock):
                                     ruta_img = obtener_imagen_raid(catalogo, f"{nombre}{sufijo}")
 
                                 if ruta_img and os.path.exists(ruta_img):
-                                    await enviar_a_canales_salio(bot_instance, ruta_img, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
+                                    ruta_final_envio = ruta_img
+                                    
+                                    # Si es Valakas o Antharas y usa el sufijo 4, generamos la hora real de publicación en formato 24h
+                                    if nombre in ["Valakas", "Antharas"] and sufijo == "4":
+                                        hora_actual_24h = ahora_arg.strftime("%H:%M")
+                                        ruta_temp_modificada = f"imagen/raid/raid/antes/{nombre.lower()}_modificada.png"
+                                        
+                                        if estampar_hora_en_imagen(ruta_img, hora_actual_24h, ruta_temp_modificada):
+                                            ruta_final_envio = ruta_temp_modificada
+                                        
+                                        logger.info(f"🕒 [SALIO] '{nombre}' (Sufijo 4) estampado con hora real: {hora_actual_24h}")
+
+                                    await enviar_a_canales_salio(bot_instance, ruta_final_envio, f"raid_{nombre.lower()}_salio_{sufijo}.png", nombre_raid=nombre)
                                     CACHE_SALIO[clave_cache] = True
                                     logger.info(f"✅ [SALIO] Publicado '{nombre}' inmediato (Sufijo {sufijo}).")
                                     await asyncio.sleep(1.0)
