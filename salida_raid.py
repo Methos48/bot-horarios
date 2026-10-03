@@ -64,6 +64,50 @@ def parsear_fecha(valor):
     except ValueError:
         return None
 
+def obtener_datetime(item):
+    """
+    Unifica la fecha/hora del JSON con la hora de Argentina.
+    Prioridad:
+    1) datetime (si ya es datetime)
+    2) datetime_iso (puede traer offset/zona)
+    3) tiempo_str / tiempo / hora
+    """
+    dt = item.get("datetime")
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=ZONA_ARGENTINA)
+        return dt.astimezone(ZONA_ARGENTINA)
+
+    iso = str(item.get("datetime_iso", "")).strip()
+    if iso:
+        try:
+            dt = datetime.fromisoformat(iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZONA_ARGENTINA)
+            return dt.astimezone(ZONA_ARGENTINA)
+        except Exception:
+            pass
+
+    tiempo = str(item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or "").strip()
+    if not tiempo or tiempo.upper() in {"VIVO", "ALIVE", "-", "NONE"}:
+        return None
+
+    for fmt in ("%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M"):
+        try:
+            return datetime.strptime(tiempo, fmt).replace(tzinfo=ZONA_ARGENTINA)
+        except ValueError:
+            pass
+
+    if len(tiempo) == 5 and tiempo[2] == ":":
+        try:
+            h, m = map(int, tiempo.split(":"))
+            ahora = datetime.now(ZONA_ARGENTINA)
+            return ahora.replace(hour=h, minute=m, second=0, microsecond=0)
+        except Exception:
+            pass
+
+    return None
+
 def tiempo_item(item):
     return item.get("tiempo_str") or item.get("tiempo") or item.get("hora") or ""
 
@@ -152,9 +196,11 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                         nombre = normalizar(item.get("nombre"))
                         if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS,nombre,lista):
                             continue
-                        dt = parsear_fecha(tiempo_item(item))
+
+                        dt = obtener_datetime(item)
                         if not dt:
                             continue
+
                         if nombre in {"valakas","antharas","fafureon"}:
                             impresa = dt - timedelta(minutes=30)
                             ventanas = [
@@ -167,6 +213,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                                 continue
                             ventanas = [(dt.replace(hour=14,minute=0,second=0,microsecond=0),dt.strftime("%H%M"),"normal_1400")]
                             impresa = dt
+
                         for inicio,sufijo,ventana in ventanas:
                             if not (inicio <= ahora < inicio + timedelta(minutes=5)):
                                 continue
@@ -208,15 +255,18 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
                         nombre = normalizar(item.get("nombre"))
                         if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS_ANTES,nombre,lista):
                             continue
-                        dt = parsear_fecha(tiempo_item(item))
+
+                        dt = obtener_datetime(item)
                         if not dt or dt.date() != ahora.date():
                             continue
+
                         if nombre in {"valakas","antharas","fafureon"}:
                             objetivos=[(dt-timedelta(minutes=60),"1"),(dt-timedelta(minutes=30),"2"),(dt,"3")]
                         elif nombre in {"baium","zaken","core","orfen","queenant","frintezza","freya","zariche"}:
                             objetivos=[(dt,"1")]
                         else:
                             objetivos=[(dt-timedelta(minutes=10),"1")]
+
                         for objetivo,sufijo in objetivos:
                             if objetivo <= ahora < objetivo+timedelta(minutes=5):
                                 clave=f"{nombre}|{dt.strftime('%Y-%m-%d')}|{sufijo}"
