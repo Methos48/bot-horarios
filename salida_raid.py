@@ -135,11 +135,28 @@ def ruta_tema():
     return getattr(config, "DIR_MORADO_RAID", "imagen/raid/morado/raid")
 
 def buscar_tema(nombre, sufijo):
+    """Busca la plantilla de PUBLICAR_RAIDS.
+
+    Regla: el nombre del raid siempre se usa en minusculas y sin espacios.
+    Para los raids normales NO se agrega ningun numero ni la hora al nombre
+    del archivo.
+
+    Unicamente Valakas, Antharas y Fafureon usan sufijos:
+        h -> publicacion de horario
+        m -> publicacion del dia anterior
+    """
     base = ruta_tema()
-    for ext in (".png",".webp",".jpg",".jpeg"):
-        p = os.path.join(base, f"{nombre}{sufijo}{ext}")
+
+    if nombre in {"valakas", "antharas", "fafureon"}:
+        archivo = f"{nombre}{sufijo}"
+    else:
+        archivo = nombre
+
+    for ext in (".png", ".webp", ".jpg", ".jpeg"):
+        p = os.path.join(base, f"{archivo}{ext}")
         if os.path.exists(p):
             return p
+
     return None
 
 def buscar_antes(nombre, sufijo):
@@ -221,7 +238,7 @@ async def procesar_un_raid_publicar(canales, item, lista, ahora):
             return
         impresa = dt
         ventanas = [
-            (dt.replace(hour=14, minute=0, second=0, microsecond=0), dt.strftime("%H%M"), "normal_1400")
+            (dt.replace(hour=14, minute=0, second=0, microsecond=0), "normal", "normal_1400")
         ]
 
     for inicio, sufijo, ventana in ventanas:
