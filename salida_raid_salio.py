@@ -23,7 +23,6 @@ CONFIG_FILTRO_PUBLICAR_RAIDS_SALIO = {
     "otros_60_mas": "si", "otros_60_menos": "no",
 }
 
-CANAL_DUPLICADO_PRUEBA = 1549577944999927999
 
 # Estos 11 solamente pueden confirmarse como "salieron"
 # mediante el estado VIVO/MUERTO de la página.
@@ -33,8 +32,7 @@ RAIDS_VIVO_O_MUERTO = {
     "antharas", "fafureon",
 }
 
-# Para duplicar el mensaje en el canal de prueba.
-RAIDS_DUPLICADOS = set(RAIDS_VIVO_O_MUERTO)
+RAIDS_DOBLE_CANAL = set(RAIDS_VIVO_O_MUERTO)
 
 NUMEROS = {str(i): getattr(config, f"NUMERO_{i}", None) for i in range(10)}
 NUMEROS[":"] = getattr(config, "NUMERO_DOS_PUNTOS", None)
@@ -276,91 +274,62 @@ def reset_memorias(ahora):
         logger.info("Memorias SALIO limpiadas a las 04:00 Argentina.")
 
 
+async def enviar_a_canal(canal_obj, ruta, nombre_archivo, img=None):
+    if img is not None:
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "PNG")
+        buf.seek(0)
+        try:
+            await canal_obj.send(file=discord.File(buf, filename=nombre_archivo))
+        finally:
+            buf.close()
+    else:
+        with open(ruta, "rb") as f:
+            await canal_obj.send(file=discord.File(f, filename=nombre_archivo))
+
+
 async def publicar(bot, nombre, sufijo, hora=None, clave=None):
     if clave and clave in MEMORIA_DUPLICADOS:
         return False
 
+    nombre = normalizar(nombre)
     ruta = plantilla(nombre, sufijo)
 
     if not ruta:
-        logger.warning(
-            "No existe plantilla SALIO: %s%s",
-            normalizar(nombre),
-            sufijo,
-        )
+        logger.warning("No existe plantilla SALIO: %s%s", nombre, sufijo)
         return False
 
-    principal = await canal(
-        bot,
-        getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None),
-    )
-
+    principal = await canal(bot, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None))
     if not principal:
         return False
 
+    clan = None
+    if nombre in RAIDS_DOBLE_CANAL:
+        clan = await canal(bot, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None))
+
     img = None
-    buf = None
+    try:
+        if hora is not None:
+            img = Image.open(ruta).convert("RGBA")
+            estampar(img, hora.strftime("%H:%M"))
 
-    if hora is not None:
-        img = Image.open(ruta).convert("RGBA")
-        estampar(img, hora.strftime("%H:%M"))
+        await enviar_a_canal(principal, ruta, f"{nombre}{sufijo}.png", img)
 
-        buf = io.BytesIO()
-        img.convert("RGB").save(buf, "PNG")
-        buf.seek(0)
+        if clan and clan != principal:
+            await enviar_a_canal(clan, ruta, f"{nombre}{sufijo}.png", img)
 
-        await principal.send(
-            file=discord.File(
-                buf,
-                filename=f"{normalizar(nombre)}{sufijo}.png",
-            )
-        )
-    else:
-        with open(ruta, "rb") as f:
-            await principal.send(
-                file=discord.File(
-                    f,
-                    filename=f"{normalizar(nombre)}{sufijo}.png",
-                )
-            )
-
-    if normalizar(nombre) in RAIDS_DUPLICADOS:
-        prueba = await canal(bot, CANAL_DUPLICADO_PRUEBA)
-
-        if prueba:
-            if hora is not None:
-                buf2 = io.BytesIO()
-                img.convert("RGB").save(buf2, "PNG")
-                buf2.seek(0)
-
-                await prueba.send(
-                    file=discord.File(
-                        buf2,
-                        filename=f"{normalizar(nombre)}{sufijo}.png",
-                    )
-                )
-
-                buf2.close()
-
-            else:
-                with open(ruta, "rb") as f:
-                    await prueba.send(
-                        file=discord.File(
-                            f,
-                            filename=f"{normalizar(nombre)}{sufijo}.png",
-                        )
-                    )
-
-    if buf:
-        buf.close()
+    finally:
+        if img is not None:
+            img.close()
 
     if clave:
         MEMORIA_DUPLICADOS.add(clave)
 
     logger.info(
-        "[SALIO] publicado %s%s",
-        normalizar(nombre),
+        "[SALIO] publicado %s%s%s",
+        nombre,
         sufijo,
+        " en ambos canales" if clan and clan != principal else " en ENVIAR_MENSAJE_CHANNEL_ID",
     )
 
     return True
@@ -574,31 +543,45 @@ async def servicio_publicar_raids_salio(
                         data = json.load(f)
 
                 for item, lista in cargar_raids(data):
-                    nombre = normalizar(item.get("nombre"))
+                    try:
+                        nombre = normalizar(item.get("nombre")) if isinstance(item, dict) else "<sin nombre>"
 
-                    if nombre in RAIDS_VIVO_O_MUERTO:
-                        await procesar_especial_vivo_muerto(
-                            bot_instance,
-                            item,
-                            lista,
-                            ahora,
-                        )
-                    else:
-                        await procesar_por_hora(
-                            bot_instance,
-                            item,
-                            lista,
-                            ahora,
+                        if nombre in RAIDS_VIVO_O_MUERTO:
+                            await procesar_especial_vivo_muerto(
+                                bot_instance,
+                                item,
+                                lista,
+                                ahora,
+                            )
+                        else:
+                            await procesar_por_hora(
+                                bot_instance,
+                                item,
+                                lista,
+                                ahora,
+                            )
+                    except Exception as e:
+                        logger.exception(
+                            "Error procesando PUBLICAR_RAIDS_SALIO para %s: %s",
+                            nombre,
+                            e,
                         )
 
                 # La segunda publicación de Valakas/Antharas
                 # se comprueba en cada ciclo de 30 segundos.
                 for nombre in ("valakas", "antharas"):
-                    await procesar_segundo_mensaje_especial(
-                        bot_instance,
-                        nombre,
-                        ahora,
-                    )
+                    try:
+                        await procesar_segundo_mensaje_especial(
+                            bot_instance,
+                            nombre,
+                            ahora,
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            "Error procesando segunda salida de %s: %s",
+                            nombre,
+                            e,
+                        )
 
         except Exception as e:
             logger.exception(
