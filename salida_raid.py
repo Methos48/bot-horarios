@@ -17,7 +17,6 @@ json_lock = asyncio.Lock()
 
 # ===================== CONFIGURACION MANUAL =====================
 TEMA_ACTIVO = "morado"  # "morado" o "rojo"
-CANAL_PUBLICAR_RAIDS_PRUEBA = 1549577944999927999
 POS_X = 80
 POS_Y = 590
 
@@ -179,6 +178,76 @@ async def obtener_canal(bot, canal_id):
             logger.error("No se pudo obtener canal %s: %s", canal_id, e)
     return canal
 
+RAIDS_DOBLE_CANAL_ANTES = {
+    "baium", "zaken", "core", "orfen", "queenant", "frintezza",
+    "freya", "zariche", "valakas", "antharas", "fafureon",
+}
+
+async def enviar_archivo_canales(canales, ruta, nombre_archivo):
+    """Envía el mismo archivo a cada canal indicado, sin compartir el stream."""
+    for canal in canales:
+        with open(ruta, "rb") as f:
+            await canal.send(file=discord.File(f, filename=nombre_archivo))
+
+async def enviar_imagen_canales(canales, img, nombre_archivo):
+    """Envía la misma imagen a cada canal creando un buffer independiente."""
+    for canal in canales:
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "PNG")
+        buf.seek(0)
+        try:
+            await canal.send(file=discord.File(buf, filename=nombre_archivo))
+        finally:
+            buf.close()
+
+async def procesar_un_raid_publicar(canales, item, lista, ahora):
+    nombre = normalizar(item.get("nombre"))
+    if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS, nombre, lista):
+        return
+
+    dt = obtener_datetime(item)
+    if not dt:
+        return
+
+    if nombre in {"valakas", "antharas", "fafureon"}:
+        impresa = dt - timedelta(minutes=30)
+        ventanas = [
+            (dt.replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(days=1), "m", "dia_anterior_10"),
+            (dt.replace(hour=10, minute=0, second=0, microsecond=0), "h", "mismo_dia_10"),
+            (dt.replace(hour=18, minute=0, second=0, microsecond=0), "h", "mismo_dia_18"),
+        ]
+    else:
+        if dt.date() != ahora.date() or not (16 <= dt.hour <= 23):
+            return
+        impresa = dt
+        ventanas = [
+            (dt.replace(hour=14, minute=0, second=0, microsecond=0), dt.strftime("%H%M"), "normal_1400")
+        ]
+
+    for inicio, sufijo, ventana in ventanas:
+        if not (inicio <= ahora < inicio + timedelta(minutes=5)):
+            continue
+
+        clave = f"{nombre}|{dt.strftime('%Y-%m-%d')}|{ventana}"
+        if clave in MEMORIA_PUBLICAR_RAIDS:
+            continue
+
+        ruta = buscar_tema(nombre, sufijo)
+        if not ruta:
+            logger.warning("No existe plantilla: %s%s en tema %s", nombre, sufijo, TEMA_ACTIVO)
+            continue
+
+        img = Image.open(ruta).convert("RGBA")
+        try:
+            estampar_hora(img, impresa.strftime("%H:%M"))
+            await enviar_imagen_canales(canales, img, f"{nombre}{sufijo}.png")
+        finally:
+            img.close()
+
+        MEMORIA_PUBLICAR_RAIDS.add(clave)
+        logger.info("[PUBLICAR_RAIDS] %s%s publicado en %d canales (%s)", nombre, sufijo, len(canales), ventana)
+        break
+
 async def servicio_publicar_raids(bot_instance, ruta_json):
     await bot_instance.wait_until_ready()
     logger.info("PUBLICAR_RAIDS iniciado. Tema: %s", TEMA_ACTIVO)
@@ -190,52 +259,65 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
                 async with json_lock:
                     with open(ruta_json, encoding="utf-8") as f:
                         data = json.load(f)
-                canal = await obtener_canal(bot_instance, CANAL_PUBLICAR_RAIDS_PRUEBA)
-                if canal:
+
+                canal_clan = await obtener_canal(bot_instance, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None))
+                canal_enviar = await obtener_canal(bot_instance, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None))
+                canales = []
+                for c in (canal_clan, canal_enviar):
+                    if c and c not in canales:
+                        canales.append(c)
+
+                if canales:
                     for item, lista in cargar_raids(data):
-                        nombre = normalizar(item.get("nombre"))
-                        if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS,nombre,lista):
-                            continue
-
-                        dt = obtener_datetime(item)
-                        if not dt:
-                            continue
-
-                        if nombre in {"valakas","antharas","fafureon"}:
-                            impresa = dt - timedelta(minutes=30)
-                            ventanas = [
-                                (dt.replace(hour=10,minute=0,second=0,microsecond=0)-timedelta(days=1),"m","dia_anterior_10"),
-                                (dt.replace(hour=10,minute=0,second=0,microsecond=0),"h","mismo_dia_10"),
-                                (dt.replace(hour=18,minute=0,second=0,microsecond=0),"h","mismo_dia_18"),
-                            ]
-                        else:
-                            if dt.date() != ahora.date() or not (16 <= dt.hour <= 23):
-                                continue
-                            ventanas = [(dt.replace(hour=14,minute=0,second=0,microsecond=0),dt.strftime("%H%M"),"normal_1400")]
-                            impresa = dt
-
-                        for inicio,sufijo,ventana in ventanas:
-                            if not (inicio <= ahora < inicio + timedelta(minutes=5)):
-                                continue
-                            clave = f"{nombre}|{dt.strftime('%Y-%m-%d')}|{ventana}"
-                            if clave in MEMORIA_PUBLICAR_RAIDS:
-                                break
-                            ruta = buscar_tema(nombre,sufijo)
-                            if not ruta:
-                                logger.warning("No existe plantilla: %s%s en tema %s",nombre,sufijo,TEMA_ACTIVO)
-                                break
-                            img = Image.open(ruta).convert("RGBA")
-                            estampar_hora(img, impresa.strftime("%H:%M"))
-                            buf = io.BytesIO()
-                            img.convert("RGB").save(buf,"PNG")
-                            buf.seek(0)
-                            await canal.send(file=discord.File(buf,filename=f"{nombre}{sufijo}.png"))
-                            MEMORIA_PUBLICAR_RAIDS.add(clave)
-                            logger.info("[PUBLICAR_RAIDS] %s%s publicado (%s)",nombre,sufijo,ventana)
-                            break
+                        try:
+                            await procesar_un_raid_publicar(canales, item, lista, ahora)
+                        except Exception as e:
+                            nombre = normalizar(item.get("nombre")) if isinstance(item, dict) else "<sin nombre>"
+                            logger.exception("Error procesando PUBLICAR_RAIDS para %s: %s", nombre, e)
         except Exception as e:
-            logger.exception("Error en PUBLICAR_RAIDS: %s",e)
+            logger.exception("Error en PUBLICAR_RAIDS: %s", e)
         await asyncio.sleep(30)
+
+async def procesar_un_raid_publicar_antes(canales_enviar, canal_clan, item, lista, ahora):
+    nombre = normalizar(item.get("nombre"))
+    if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS_ANTES, nombre, lista):
+        return
+
+    dt = obtener_datetime(item)
+    if not dt or dt.date() != ahora.date():
+        return
+
+    if nombre in {"valakas", "antharas", "fafureon"}:
+        objetivos = [(dt - timedelta(minutes=60), "1"), (dt - timedelta(minutes=30), "2"), (dt, "3")]
+    elif nombre in {"baium", "zaken", "core", "orfen", "queenant", "frintezza", "freya", "zariche"}:
+        objetivos = [(dt, "1")]
+    else:
+        objetivos = [(dt - timedelta(minutes=10), "1")]
+
+    for objetivo, sufijo in objetivos:
+        if not (objetivo <= ahora < objetivo + timedelta(minutes=5)):
+            continue
+
+        clave = f"{nombre}|{dt.strftime('%Y-%m-%d')}|{sufijo}"
+        if clave in MEMORIA_PUBLICAR_RAIDS_ANTES:
+            continue
+
+        ruta = buscar_antes(nombre, sufijo)
+        if not ruta:
+            logger.warning("No existe plantilla ANTES: %s%s", nombre, sufijo)
+            continue
+
+        canales = [canales_enviar] if canales_enviar else []
+        if nombre in RAIDS_DOBLE_CANAL_ANTES and canal_clan and canal_clan not in canales:
+            canales.append(canal_clan)
+
+        if not canales:
+            return
+
+        await enviar_archivo_canales(canales, ruta, f"{nombre}{sufijo}.png")
+        MEMORIA_PUBLICAR_RAIDS_ANTES.add(clave)
+        logger.info("[PUBLICAR_RAIDS_ANTES] %s%s publicado en %d canal(es)", nombre, sufijo, len(canales))
+        break
 
 async def servicio_publicar_raids_antes(bot_instance, ruta_json):
     await bot_instance.wait_until_ready()
@@ -244,45 +326,21 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
         try:
             ahora = datetime.now(ZONA_ARGENTINA)
             reset_memorias(ahora)
-            canal_id = getattr(config,"ENVIAR_MENSAJE_CHANNEL_ID",None)
-            if canal_id and os.path.exists(ruta_json):
-                canal = await obtener_canal(bot_instance,canal_id)
-                if canal:
+            if os.path.exists(ruta_json):
+                canal_enviar = await obtener_canal(bot_instance, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None))
+                canal_clan = await obtener_canal(bot_instance, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None))
+                if canal_enviar:
                     async with json_lock:
-                        with open(ruta_json,encoding="utf-8") as f:
+                        with open(ruta_json, encoding="utf-8") as f:
                             data = json.load(f)
-                    for item,lista in cargar_raids(data):
-                        nombre = normalizar(item.get("nombre"))
-                        if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS_ANTES,nombre,lista):
-                            continue
-
-                        dt = obtener_datetime(item)
-                        if not dt or dt.date() != ahora.date():
-                            continue
-
-                        if nombre in {"valakas","antharas","fafureon"}:
-                            objetivos=[(dt-timedelta(minutes=60),"1"),(dt-timedelta(minutes=30),"2"),(dt,"3")]
-                        elif nombre in {"baium","zaken","core","orfen","queenant","frintezza","freya","zariche"}:
-                            objetivos=[(dt,"1")]
-                        else:
-                            objetivos=[(dt-timedelta(minutes=10),"1")]
-
-                        for objetivo,sufijo in objetivos:
-                            if objetivo <= ahora < objetivo+timedelta(minutes=5):
-                                clave=f"{nombre}|{dt.strftime('%Y-%m-%d')}|{sufijo}"
-                                if clave in MEMORIA_PUBLICAR_RAIDS_ANTES:
-                                    break
-                                ruta=buscar_antes(nombre,sufijo)
-                                if not ruta:
-                                    logger.warning("No existe plantilla ANTES: %s%s",nombre,sufijo)
-                                    break
-                                with open(ruta,"rb") as f:
-                                    await canal.send(file=discord.File(f,filename=f"{nombre}{sufijo}.png"))
-                                MEMORIA_PUBLICAR_RAIDS_ANTES.add(clave)
-                                logger.info("[PUBLICAR_RAIDS_ANTES] %s%s publicado",nombre,sufijo)
-                                break
+                    for item, lista in cargar_raids(data):
+                        try:
+                            await procesar_un_raid_publicar_antes(canal_enviar, canal_clan, item, lista, ahora)
+                        except Exception as e:
+                            nombre = normalizar(item.get("nombre")) if isinstance(item, dict) else "<sin nombre>"
+                            logger.exception("Error procesando PUBLICAR_RAIDS_ANTES para %s: %s", nombre, e)
         except Exception as e:
-            logger.exception("Error en PUBLICAR_RAIDS_ANTES: %s",e)
+            logger.exception("Error en PUBLICAR_RAIDS_ANTES: %s", e)
         await asyncio.sleep(30)
 
 async def iniciar_monitoreo_permanente_raids(bot_instance,ruta_json="jefes_activos.json",intervalo_segundos=30):
