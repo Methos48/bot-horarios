@@ -17,6 +17,14 @@ import config
 logger = logging.getLogger("SalidaRonda")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
+SERVIDORES_RONDA = []
+if PUBLICAR_SERVIDOR_1 == "si":
+    SERVIDORES_RONDA.append(getattr(config, "RONDA_CHANNEL_ID", None))
+if PUBLICAR_SERVIDOR_2 == "si":
+    SERVIDORES_RONDA.append(1556550647979966504)
+if PUBLICAR_SERVIDOR_3 == "si":
+    SERVIDORES_RONDA.append(1533270483997298981)
+
 
 def _hex_a_rgb(hex_str):
     hex_str = hex_str.lstrip('#')
