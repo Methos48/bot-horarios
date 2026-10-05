@@ -400,7 +400,7 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
 @bot.event
 async def on_ready():
     logger.info(f"¡Bot conectado como {bot.user}!")
-    
+
     # Sincronización global automática de los comandos de barra
     try:
         synced = await bot.tree.sync()
@@ -408,76 +408,123 @@ async def on_ready():
     except Exception as e:
         logger.error(f"❌ Error al sincronizar los comandos de barra: {e}")
 
+    # Monitoreo de la página: normales cada 30 s y especiales cada 5 s.
     if not auto_monitor_web.is_running():
         auto_monitor_web.start()
-        
-    # =========================================================================
-    # 🚀 ACTIVACIÓN DEL MONITOREO AUTÓNOMO DE SALIDA RAID EN SEGUNDO PLANO
-    # =========================================================================
-    bot.loop.create_task(salida_raid.iniciar_monitoreo_permanente_raids(bot, ruta_json=ARCHIVO_JSON, intervalo_segundos=30))
-    logger.info("🚀 Tarea en segundo plano 'iniciar_monitoreo_permanente_raids' lanzada con éxito.")
+    if not auto_monitor_epic.is_running():
+        auto_monitor_epic.start()
 
-    # =========================================================================
-    # ⚡ ACTIVACIÓN DEL SERVICIO DE RAIDS SALIÓ EN SEGUNDO PLANO
-    # =========================================================================
-    bot.loop.create_task(salida_raid_salio.servicio_publicar_raids_salio(bot, ruta_json=ARCHIVO_JSON, json_lock=json_lock))
-    logger.info("🟢 Tarea en segundo plano 'servicio_publicar_raids_salio' lanzada con éxito.")
+    bot.loop.create_task(
+        salida_raid.iniciar_monitoreo_permanente_raids(
+            bot,
+            ruta_json=ARCHIVO_JSON,
+            intervalo_segundos=30,
+        )
+    )
+    logger.info("🚀 PUBLICAR_RAIDS/PUBLICAR_RAIDS_ANTES configurados a 30 segundos.")
 
-@tasks.loop(seconds=60)
+    bot.loop.create_task(
+        salida_raid_salio.servicio_publicar_raids_salio(
+            bot,
+            ruta_json=ARCHIVO_JSON,
+            json_lock=json_lock,
+        )
+    )
+    logger.info("🟢 PUBLICAR_RAIDS_SALIO configurado a 5 segundos.")
+
+
+@tasks.loop(seconds=30)
 async def auto_monitor_web():
+    """Monitorea exclusivamente los raids normales 60+ y 60-."""
     try:
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
-        t_epic_crudo = entrada_pagina.obtener_datos_epic_web()
-         
         t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
         t2 = aplicar_offset_web(t2_crudo, HORA_OFFSET_WEB)
-        t_epic = aplicar_offset_web(t_epic_crudo, HORA_OFFSET_WEB)
-         
-        if t1 or t2 or t_epic:
-            def clasificar_local(lista_items):
-                r_plus, r_minus = [], []
-                wh_plus = {"asedio", "p v p", "x9", "x 9", "foto mes", "core", "orfen", "queen ant", "zaken", "balrog", "electrical", "electrica", "valakas", "baium", "frintezza", "fafureon", "antharas", "freya", "zariche"}
-                for item in lista_items:
-                    nombre = str(item.get("nombre", "")).strip().lower()
-                    try:
-                        niv = int(str(item.get("nivel", 85)).strip() or 85)
-                    except:
-                        niv = 85
-                    if nombre in wh_plus or niv >= 60:
-                        r_plus.append(item)
-                    else:
-                        r_minus.append(item)
-                return limpiar_duplicados_por_nombre(r_plus), limpiar_duplicados_por_nombre(r_minus)
 
-            nuevos_r60_plus_web, nuevos_r60_menos = clasificar_local(t1 + t2)
-            nuevos_vivo_muerto = limpiar_duplicados_por_nombre(t_epic)
+        if not (t1 or t2):
+            return
 
-            vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
-            vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
-            vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
-             
-            dict_r60_plus_actual = {str(i.get("nombre","")).lower(): i for i in vieja_r60_plus}
-            for item in nuevos_r60_plus_web:
-                dict_r60_plus_actual[str(item.get("nombre","")).lower()] = item
-            fusion_r60_plus = list(dict_r60_plus_actual.values())
+        def clasificar_local(lista_items):
+            r_plus, r_minus = [], []
+            wh_plus = {
+                "asedio", "p v p", "x9", "x 9", "foto mes",
+                "core", "orfen", "queen ant", "zaken", "balrog",
+                "electrical", "electrica", "valakas", "baium",
+                "frintezza", "fafureon", "antharas", "freya", "zariche",
+            }
+            for item in lista_items:
+                nombre = str(item.get("nombre", "")).strip().lower()
+                try:
+                    niv = int(str(item.get("nivel", 85)).strip() or 85)
+                except Exception:
+                    niv = 85
+                if nombre in wh_plus or niv >= 60:
+                    r_plus.append(item)
+                else:
+                    r_minus.append(item)
+            return limpiar_duplicados_por_nombre(r_plus), limpiar_duplicados_por_nombre(r_minus)
 
+        nuevos_r60_plus_web, nuevos_r60_menos = clasificar_local(t1 + t2)
+        vieja_r60_plus = MEMORIA_JEFES.get("raid_60_plus", [])
+        vieja_r60_menos = MEMORIA_JEFES.get("raid_60_menos", [])
+
+        # 60+: la web actualiza los raids normales, pero conservamos los
+        # registros manuales/anteriores que no hayan sido reemplazados por la web.
+        dict_r60_plus_actual = {
+            str(i.get("nombre", "")).strip().lower(): i
+            for i in vieja_r60_plus
+        }
+        for item in nuevos_r60_plus_web:
+            dict_r60_plus_actual[str(item.get("nombre", "")).strip().lower()] = item
+        fusion_r60_plus = list(dict_r60_plus_actual.values())
+
+        if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus):
             async with json_lock:
-                if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus) or listas_han_cambiado(vieja_vivo_muerto, nuevos_vivo_muerto):
-                    MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
-                    MEMORIA_JEFES["vivo_o_muerto"] = nuevos_vivo_muerto
-                    guardar_memoria_a_json_completa()
-                    await disparar_salida_ronda_si_cambio(bot)
+                MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
+                guardar_memoria_a_json_completa()
+            await disparar_salida_ronda_si_cambio(bot)
 
-                if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
-                    MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-                    guardar_memoria_a_json_completa()
-                    await disparar_salida_low_si_cambio(bot)
+        if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
+            async with json_lock:
+                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+                guardar_memoria_a_json_completa()
+            await disparar_salida_low_si_cambio(bot)
 
     except Exception as e:
-        logger.error(f"Error en monitoreo web: {e}")
+        logger.error(f"Error en monitoreo web de raids normales: {e}")
+
 
 @auto_monitor_web.before_loop
 async def before_auto_monitor():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(seconds=5)
+async def auto_monitor_epic():
+    """Monitorea exclusivamente los estados de los Epic Bosses cada 5 segundos."""
+    try:
+        t_epic_crudo = entrada_pagina.obtener_datos_especiales_web()
+        t_epic = limpiar_duplicados_por_nombre(t_epic_crudo)
+
+        if not t_epic:
+            return
+
+        vieja_vivo_muerto = MEMORIA_JEFES.get("vivo_o_muerto", [])
+        if not listas_han_cambiado(vieja_vivo_muerto, t_epic):
+            return
+
+        async with json_lock:
+            MEMORIA_JEFES["vivo_o_muerto"] = t_epic
+            guardar_memoria_a_json_completa()
+
+        await disparar_salida_ronda_si_cambio(bot)
+
+    except Exception as e:
+        logger.error(f"Error en monitoreo web de Epic Bosses: {e}")
+
+
+@auto_monitor_epic.before_loop
+async def before_auto_monitor_epic():
     await bot.wait_until_ready()
 
 @bot.event
