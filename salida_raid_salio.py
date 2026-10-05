@@ -589,4 +589,4 @@ async def servicio_publicar_raids_salio(
                 e,
             )
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(5)
