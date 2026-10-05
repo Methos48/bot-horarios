@@ -38,6 +38,10 @@ NUMEROS = {str(i): getattr(config, f"NUMERO_{i}", None) for i in range(10)}
 NUMEROS[":"] = getattr(config, "NUMERO_DOS_PUNTOS", None)
 
 MEMORIA_DUPLICADOS = set()
+# Guarda qué canales ya recibieron cada publicación.
+# Así, si un canal funciona y el otro falla, al reintentar no duplicamos
+# el mensaje que ya fue enviado correctamente.
+MEMORIA_CANALES_PUBLICADOS = {}
 ESTADO_ANTERIOR_VIVO_MUERTO = {}
 MEMORIA_SALIDA_ESPECIALES = {}
 ULTIMO_RESET_DIA = None
@@ -266,6 +270,7 @@ def reset_memorias(ahora):
 
     if ahora.hour >= 4 and ULTIMO_RESET_DIA != dia:
         MEMORIA_DUPLICADOS.clear()
+        MEMORIA_CANALES_PUBLICADOS.clear()
         MEMORIA_SALIDA_ESPECIALES.clear()
         ESTADO_ANTERIOR_VIVO_MUERTO.clear()
 
@@ -289,23 +294,47 @@ async def enviar_a_canal(canal_obj, ruta, nombre_archivo, img=None):
 
 
 async def publicar(bot, nombre, sufijo, hora=None, clave=None):
-    if clave and clave in MEMORIA_DUPLICADOS:
-        return False
+    """
+    Publica una salida en los canales correspondientes.
 
+    La publicación se controla POR CANAL. Esto es importante porque puede
+    ocurrir que ENVIAR_MENSAJE_CHANNEL_ID acepte el mensaje y
+    MENSAJE_CLAN_CHANNEL_ID falle (o al revés). En ese caso, el siguiente
+    ciclo reintenta solamente el canal que faltó, sin duplicar el que ya salió.
+    """
     nombre = normalizar(nombre)
-    ruta = plantilla(nombre, sufijo)
 
+    ruta = plantilla(nombre, sufijo)
     if not ruta:
         logger.warning("No existe plantilla SALIO: %s%s", nombre, sufijo)
         return False
 
-    principal = await canal(bot, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None))
-    if not principal:
+    principal_id = getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)
+    clan_id = None
+    if nombre in RAIDS_DOBLE_CANAL:
+        clan_id = getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)
+
+    canales_necesarios = []
+    if principal_id:
+        canales_necesarios.append(("principal", principal_id))
+
+    if clan_id and str(clan_id) != str(principal_id):
+        canales_necesarios.append(("clan", clan_id))
+
+    if not canales_necesarios:
+        logger.error("No hay canales configurados para publicar %s%s", nombre, sufijo)
         return False
 
-    clan = None
-    if nombre in RAIDS_DOBLE_CANAL:
-        clan = await canal(bot, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None))
+    if clave:
+        publicados = MEMORIA_CANALES_PUBLICADOS.setdefault(clave, set())
+    else:
+        publicados = set()
+
+    # Si todos los canales ya recibieron el mensaje, no hacemos nada.
+    if all(etiqueta in publicados for etiqueta, _ in canales_necesarios):
+        if clave:
+            MEMORIA_DUPLICADOS.add(clave)
+        return True
 
     img = None
     try:
@@ -313,26 +342,63 @@ async def publicar(bot, nombre, sufijo, hora=None, clave=None):
             img = Image.open(ruta).convert("RGBA")
             estampar(img, hora.strftime("%H:%M"))
 
-        await enviar_a_canal(principal, ruta, f"{nombre}{sufijo}.png", img)
+        todo_ok = True
 
-        if clan and clan != principal:
-            await enviar_a_canal(clan, ruta, f"{nombre}{sufijo}.png", img)
+        for etiqueta, canal_id in canales_necesarios:
+            if etiqueta in publicados:
+                continue
+
+            canal_obj = await canal(bot, canal_id)
+            if not canal_obj:
+                logger.warning(
+                    "[SALIO] No se pudo obtener el canal %s para %s%s. Se reintentará.",
+                    etiqueta,
+                    nombre,
+                    sufijo,
+                )
+                todo_ok = False
+                continue
+
+            try:
+                await enviar_a_canal(
+                    canal_obj,
+                    ruta,
+                    f"{nombre}{sufijo}.png",
+                    img,
+                )
+                publicados.add(etiqueta)
+                logger.info(
+                    "[SALIO] %s%s enviado correctamente al canal %s.",
+                    nombre,
+                    sufijo,
+                    etiqueta,
+                )
+            except Exception as e:
+                todo_ok = False
+                logger.exception(
+                    "[SALIO] Error enviando %s%s al canal %s: %s. Se reintentará sin duplicar los otros canales.",
+                    nombre,
+                    sufijo,
+                    etiqueta,
+                    e,
+                )
+
+        if all(etiqueta in publicados for etiqueta, _ in canales_necesarios):
+            if clave:
+                MEMORIA_DUPLICADOS.add(clave)
+            logger.info(
+                "[SALIO] publicación completa: %s%s%s",
+                nombre,
+                sufijo,
+                " en ambos canales" if len(canales_necesarios) == 2 else " en ENVIAR_MENSAJE_CHANNEL_ID",
+            )
+            return True
+
+        return False if not todo_ok else False
 
     finally:
         if img is not None:
             img.close()
-
-    if clave:
-        MEMORIA_DUPLICADOS.add(clave)
-
-    logger.info(
-        "[SALIO] publicado %s%s%s",
-        nombre,
-        sufijo,
-        " en ambos canales" if clan and clan != principal else " en ENVIAR_MENSAJE_CHANNEL_ID",
-    )
-
-    return True
 
 
 async def procesar_especial_vivo_muerto(
