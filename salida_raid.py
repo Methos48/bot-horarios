@@ -1,3 +1,11 @@
+# ============================================================
+# ACTIVAR / DESACTIVAR SERVIDORES
+# Pon "si" para publicar en ese servidor o "no" para desactivarlo.
+# ============================================================
+PUBLICAR_SERVIDOR_1 = "si"
+PUBLICAR_SERVIDOR_2 = "si"
+PUBLICAR_SERVIDOR_3 = "si"
+
 import os
 import io
 import json
@@ -14,6 +22,9 @@ import config
 logger = logging.getLogger("SalidaRaid")
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 json_lock = asyncio.Lock()
+
+# Servidores secundarios: PUBLICAR_RAIDS normal NO se envia aqui.
+# Estos canales reciben solamente PUBLICAR_RAIDS_ANTES.
 
 # ===================== CONFIGURACION MANUAL =====================
 TEMA_ACTIVO = "morado"  # "morado" o "rojo"
@@ -295,7 +306,7 @@ async def servicio_publicar_raids(bot_instance, ruta_json):
             logger.exception("Error en PUBLICAR_RAIDS: %s", e)
         await asyncio.sleep(30)
 
-async def procesar_un_raid_publicar_antes(canales_enviar, canal_clan, item, lista, ahora):
+async def procesar_un_raid_publicar_antes(canales_enviar, canal_clan, item, lista, ahora, canales_secundarios=None):
     nombre = normalizar(item.get("nombre"))
     if not nombre or not filtro_ok(FILTRO_PUBLICAR_RAIDS_ANTES, nombre, lista):
         return
@@ -328,6 +339,12 @@ async def procesar_un_raid_publicar_antes(canales_enviar, canal_clan, item, list
         if nombre in RAIDS_DOBLE_CANAL_ANTES and canal_clan and canal_clan not in canales:
             canales.append(canal_clan)
 
+        # Servidores 2 y 3: todos los raids de PUBLICAR_RAIDS_ANTES,
+        # una sola vez por servidor, sin aplicar la logica de doble canal del servidor principal.
+        for canal_secundario in (canales_secundarios or []):
+            if canal_secundario and canal_secundario not in canales:
+                canales.append(canal_secundario)
+
         if not canales:
             return
 
@@ -344,15 +361,24 @@ async def servicio_publicar_raids_antes(bot_instance, ruta_json):
             ahora = datetime.now(ZONA_ARGENTINA)
             reset_memorias(ahora)
             if os.path.exists(ruta_json):
-                canal_enviar = await obtener_canal(bot_instance, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None))
-                canal_clan = await obtener_canal(bot_instance, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None))
-                if canal_enviar:
+                canal_enviar = await obtener_canal(bot_instance, getattr(config, "ENVIAR_MENSAJE_CHANNEL_ID", None)) if PUBLICAR_SERVIDOR_1 == "si" else None
+                canal_clan = await obtener_canal(bot_instance, getattr(config, "MENSAJE_CLAN_CHANNEL_ID", None)) if PUBLICAR_SERVIDOR_1 == "si" else None
+                canales_secundarios = []
+                if PUBLICAR_SERVIDOR_2 == "si":
+                    canal_secundario = await obtener_canal(bot_instance, 1556550803928653844)
+                    if canal_secundario:
+                        canales_secundarios.append(canal_secundario)
+                if PUBLICAR_SERVIDOR_3 == "si":
+                    canal_secundario = await obtener_canal(bot_instance, 1556552846168821832)
+                    if canal_secundario:
+                        canales_secundarios.append(canal_secundario)
+                if canal_enviar or canal_clan or canales_secundarios:
                     async with json_lock:
                         with open(ruta_json, encoding="utf-8") as f:
                             data = json.load(f)
                     for item, lista in cargar_raids(data):
                         try:
-                            await procesar_un_raid_publicar_antes(canal_enviar, canal_clan, item, lista, ahora)
+                            await procesar_un_raid_publicar_antes(canal_enviar, canal_clan, item, lista, ahora, canales_secundarios)
                         except Exception as e:
                             nombre = normalizar(item.get("nombre")) if isinstance(item, dict) else "<sin nombre>"
                             logger.exception("Error procesando PUBLICAR_RAIDS_ANTES para %s: %s", nombre, e)
