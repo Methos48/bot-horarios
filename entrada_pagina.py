@@ -14,6 +14,11 @@ logger = logging.getLogger("EntradaPagina")
 # Definir la zona horaria estricta de Argentina
 ZONA_ARGENTINA = ZoneInfo(getattr(config, "TZ", "America/Argentina/Buenos_Aires"))
 
+# Frecuencias de monitoreo controladas por main.py.
+INTERVALO_RAIDS_NORMALES = 30
+INTERVALO_ESPECIALES = 5
+TIMEOUT_HTTP = 15
+
 # Inicializar el cliente con el nuevo SDK de google-genai para imágenes
 client = genai.Client(api_key=getattr(config, "GEMINI_API_KEY", os.getenv("GEMINI_API_KEY")))
 
@@ -104,7 +109,7 @@ def obtener_datos_web():
     logger.info(f"Conectando a la web para rastrear jefes normales (Hora Argentina): {url}")
     
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, timeout=TIMEOUT_HTTP)
         if response.status_code != 200:
             logger.error(f"Error al conectar con la página web. Código HTTP: {response.status_code}")
             return [], []
@@ -169,7 +174,7 @@ def obtener_datos_epic_web():
     logger.info(f"Conectando a la web para rastrear Epic Bosses: {url}")
     
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, timeout=TIMEOUT_HTTP)
         if response.status_code != 200:
             logger.error(f"Error HTTP al conectar para Epic Bosses: {response.status_code}")
             return []
@@ -222,6 +227,11 @@ def obtener_datos_epic_web():
     except Exception as e:
         logger.error(f"Excepción ocurrida al extraer Epic Bosses: {e}")
         return []
+
+
+def obtener_datos_especiales_web():
+    """Obtiene exclusivamente el estado de los Epic Bosses para el monitoreo rapido."""
+    return obtener_datos_epic_web()
 
 def _ordenar_tabla(lista_jefes):
     """
