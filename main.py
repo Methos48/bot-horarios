@@ -57,6 +57,17 @@ MA_FECHAS_CONOCIDAS = {}
 # cuando cambia la(s) lista(s) que realmente administra.
 SALIDAS_WEB_INICIALES_ENVIADAS = False
 
+# --- MEMORIA EXCLUSIVA PARA salida_horario ---
+# Se mantiene solamente la información vigente de los 11 raids fijos y de
+# los eventos opcionales recibidos por texto/imagen. Esta memoria vive en
+# main.py y se reconstruye al recibir cada nueva entrada manual.
+RAIDS_HORARIO_FIJOS = {
+    "orfen", "queen ant", "core", "zaken", "baium", "frintezza",
+    "freya", "zariche", "valakas", "antharas", "fafureon"
+}
+EVENTOS_HORARIO_OPCIONALES = {"asedio", "p v p", "x 9", "x9", "foto mes"}
+MEMORIA_HORARIO = []
+
 # --- LISTA OFICIAL DE JEFES ÉPICOS (Los de la imagen) ---
 JEFES_EPICOS_IMAGEN = {
     "antharas", "fafureon", "freya", "frintezza", 
@@ -406,6 +417,182 @@ def obtener_fecha_ma(item):
 
     return None
 
+def _normalizar_nombre_horario(nombre):
+    return " ".join(str(nombre or "").strip().lower().split())
+
+
+def _fecha_hora_horario(item):
+    """Obtiene la fecha/hora utilizable para ordenar y saber si ya pasó."""
+    dt = item.get("datetime")
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZONA_ARGENTINA)
+        return dt.astimezone(ZONA_ARGENTINA)
+
+    dt_iso = item.get("datetime_iso")
+    if dt_iso:
+        try:
+            dt = datetime.fromisoformat(str(dt_iso))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZONA_ARGENTINA)
+            return dt.astimezone(ZONA_ARGENTINA)
+        except Exception:
+            pass
+
+    for campo in ("tiempo_str", "tiempo", "hora"):
+        valor = str(item.get(campo, "")).strip()
+        if not valor or valor.upper() in {"VIVO", "ALIVE"}:
+            continue
+        for formato in (
+            "%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M",
+            "%d/%m/%y %H:%M", "%d-%m-%y %H:%M",
+            "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y",
+        ):
+            try:
+                dt = datetime.strptime(valor, formato).replace(tzinfo=ZONA_ARGENTINA)
+                return dt
+            except Exception:
+                pass
+
+    return None
+
+
+def _es_vivo_horario(item):
+    valores = [
+        str(item.get("estado", "")).strip().upper(),
+        str(item.get("tiempo_str", "")).strip().upper(),
+        str(item.get("tiempo", "")).strip().upper(),
+    ]
+    return bool(item.get("es_vivo")) or any(v in {"VIVO", "ALIVE"} for v in valores)
+
+
+def _preparar_registro_horario(item):
+    """Normaliza lo necesario para que salida_horario reciba una data consistente."""
+    copia = dict(item)
+    nombre = str(copia.get("nombre", "")).strip()
+    copia["nombre"] = nombre
+
+    if _es_vivo_horario(copia):
+        ahora = datetime.now(ZONA_ARGENTINA)
+        dt = _fecha_hora_horario(copia)
+
+        # Si viene una fecha sin hora, se usa esa fecha. Si no viene fecha,
+        # VIVO corresponde al día actual.
+        fecha_vivo = dt.date() if dt else ahora.date()
+        dt_vivo = datetime.combine(fecha_vivo, datetime.min.time(), tzinfo=ZONA_ARGENTINA)
+        copia["datetime"] = dt_vivo
+        copia["datetime_iso"] = dt_vivo.isoformat()
+        copia["estado"] = "VIVO"
+        copia["es_vivo"] = True
+        copia["tiempo_str"] = f"{fecha_vivo.strftime('%d/%m/%y')} VIVO"
+
+        # Conserva cualquier campo de hora que ya entregue entrada_texto /
+        # entrada_imagen y lo convierte a VIVO. No inventa nombres de campos.
+        for clave in list(copia.keys()):
+            if "hora" in str(clave).lower():
+                copia[clave] = "VIVO"
+
+    return copia
+
+
+def _clave_evento_horario(item):
+    """Los eventos se distinguen por nombre + fecha; permite dos Asedios futuros."""
+    nombre = _normalizar_nombre_horario(item.get("nombre", ""))
+    dt = _fecha_hora_horario(item)
+    fecha = dt.strftime("%Y-%m-%d") if dt else "sin-fecha"
+    return nombre, fecha
+
+
+def _es_opcional_horario(nombre):
+    return _normalizar_nombre_horario(nombre) in EVENTOS_HORARIO_OPCIONALES
+
+
+def _es_futuro_horario(item, ahora=None):
+    ahora = ahora or datetime.now(ZONA_ARGENTINA)
+    dt = _fecha_hora_horario(item)
+    if dt is None:
+        return False
+    # Un evento que ya pasó deja de formar parte de la memoria.
+    return dt >= ahora
+
+
+def _limpiar_memoria_horario():
+    """Elimina de la memoria todo evento/raid con fecha y hora ya vencidas."""
+    global MEMORIA_HORARIO
+    ahora = datetime.now(ZONA_ARGENTINA)
+    memoria_limpia = []
+
+    for item in MEMORIA_HORARIO:
+        nombre = _normalizar_nombre_horario(item.get("nombre", ""))
+        dt = _fecha_hora_horario(item)
+
+        if _es_opcional_horario(nombre):
+            if dt is not None and dt >= ahora:
+                memoria_limpia.append(item)
+            continue
+
+        # Los 11 raids fijos permanecen una sola vez mientras sean vigentes.
+        # Si tienen una fecha/hora vencida, se eliminan y la próxima entrada
+        # manual podrá colocar el nuevo respawn.
+        if nombre in RAIDS_HORARIO_FIJOS:
+            if _es_vivo_horario(item) and dt is not None and dt.date() == ahora.date():
+                memoria_limpia.append(item)
+            elif dt is not None and dt >= ahora:
+                memoria_limpia.append(item)
+
+    MEMORIA_HORARIO = memoria_limpia
+
+
+def _actualizar_memoria_horario(registros_ingresados):
+    """Mezcla la nueva entrada con la memoria vigente de salida_horario."""
+    global MEMORIA_HORARIO
+
+    _limpiar_memoria_horario()
+    actuales = [_preparar_registro_horario(i) for i in MEMORIA_HORARIO]
+
+    # Solo interesan los 11 raids fijos y los eventos opcionales definidos.
+    nuevos = []
+    for registro in registros_ingresados or []:
+        item = _preparar_registro_horario(registro)
+        nombre = _normalizar_nombre_horario(item.get("nombre", ""))
+        if nombre in RAIDS_HORARIO_FIJOS or _es_opcional_horario(nombre):
+            nuevos.append(item)
+
+    # Los 11 raids fijos: uno solo por nombre; la nueva entrada reemplaza la anterior.
+    por_raid = {
+        _normalizar_nombre_horario(i.get("nombre", "")): i
+        for i in actuales
+        if _normalizar_nombre_horario(i.get("nombre", "")) in RAIDS_HORARIO_FIJOS
+    }
+    for item in nuevos:
+        nombre = _normalizar_nombre_horario(item.get("nombre", ""))
+        if nombre in RAIDS_HORARIO_FIJOS:
+            por_raid[nombre] = item
+
+    # Eventos: se distinguen por nombre + fecha. Así Asedio puede aparecer
+    # dos veces si son dos fechas distintas (sábado/domingo, por ejemplo).
+    eventos = {
+        _clave_evento_horario(i): i
+        for i in actuales
+        if _es_opcional_horario(i.get("nombre", ""))
+    }
+    for item in nuevos:
+        nombre = _normalizar_nombre_horario(item.get("nombre", ""))
+        if _es_opcional_horario(nombre):
+            if _es_futuro_horario(item):
+                eventos[_clave_evento_horario(item)] = item
+
+    MEMORIA_HORARIO = list(por_raid.values()) + list(eventos.values())
+    _limpiar_memoria_horario()
+
+    # Primero fecha y después hora. VIVO queda al inicio de su fecha.
+    MEMORIA_HORARIO.sort(key=lambda i: (
+        _fecha_hora_horario(i) or datetime.max.replace(tzinfo=ZONA_ARGENTINA),
+        _normalizar_nombre_horario(i.get("nombre", ""))
+    ))
+    return list(MEMORIA_HORARIO)
+
+
 async def disparar_salidas_manuales(bot_instance, registros_ingresados):
     global MA_INICIALIZADA, MA_FECHAS_CONOCIDAS
 
@@ -436,23 +623,18 @@ async def disparar_salidas_manuales(bot_instance, registros_ingresados):
                 await salida_ma.ejecutar(bot_instance, datos_ma)
                 logger.info("✅ salida_ma ejecutada con éxito (primera entrada o cambio de fecha).")
 
-            # Actualizamos la memoria de fechas después de decidir la publicación.
             for item in datos_ma:
                 nombre = str(item.get("nombre", "")).strip().lower()
                 MA_FECHAS_CONOCIDAS[nombre] = obtener_fecha_ma(item)
 
             MA_INICIALIZADA = True
 
-        if registros_ingresados:
-            exclusiones = {"balrog", "electrical", "electrica"}
-            registros_horario = [
-                j for j in registros_ingresados
-                if str(j.get("nombre", "")).strip().lower() not in exclusiones
-            ]
-
-            if registros_horario:
-                await salida_horario.ejecutar(bot_instance, limpiar_duplicados_por_nombre(registros_horario))
-                logger.info("✅ salida_horario ejecutada con éxito.")
+        # salida_horario recibe siempre la memoria completa y vigente, no solo
+        # los registros de la entrada actual.
+        datos_horario = _actualizar_memoria_horario(registros_ingresados)
+        if datos_horario:
+            await salida_horario.ejecutar(bot_instance, datos_horario)
+            logger.info("✅ salida_horario ejecutada con memoria completa, vigente y ordenada.")
 
     except Exception as e:
         logger.error(f"Error al disparar salidas manuales: {e}")
