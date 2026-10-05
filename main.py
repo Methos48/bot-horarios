@@ -51,6 +51,12 @@ MA_RAIDS = {"valakas", "antharas", "fafureon"}
 MA_INICIALIZADA = False
 MA_FECHAS_CONOCIDAS = {}
 
+# --- CONTROL DE PRIMERA PUBLICACIÓN DE LAS TABLAS DESDE LA WEB ---
+# Al arrancar el bot, la primera data válida de entrada_pagina.py publica
+# una vez salida_low y salida_ronda. Después, cada servicio solo se dispara
+# cuando cambia la(s) lista(s) que realmente administra.
+SALIDAS_WEB_INICIALES_ENVIADAS = False
+
 # --- LISTA OFICIAL DE JEFES ÉPICOS (Los de la imagen) ---
 JEFES_EPICOS_IMAGEN = {
     "antharas", "fafureon", "freya", "frintezza", 
@@ -490,6 +496,7 @@ async def on_ready():
 @tasks.loop(seconds=30)
 async def auto_monitor_web():
     """Monitorea exclusivamente los raids normales 60+ y 60-."""
+    global SALIDAS_WEB_INICIALES_ENVIADAS
     try:
         t1_crudo, t2_crudo = entrada_pagina.obtener_datos_web()
         t1 = aplicar_offset_web(t1_crudo, HORA_OFFSET_WEB)
@@ -532,16 +539,29 @@ async def auto_monitor_web():
             dict_r60_plus_actual[str(item.get("nombre", "")).strip().lower()] = item
         fusion_r60_plus = list(dict_r60_plus_actual.values())
 
-        if listas_han_cambiado(vieja_r60_plus, fusion_r60_plus):
-            async with json_lock:
-                MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
-                guardar_memoria_a_json_completa()
+        cambio_r60_plus = listas_han_cambiado(vieja_r60_plus, fusion_r60_plus)
+        cambio_r60_menos = listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos)
+
+        async with json_lock:
+            MEMORIA_JEFES["raid_60_plus"] = fusion_r60_plus
+            MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
+            guardar_memoria_a_json_completa()
+
+        # Primera data válida de entrada_pagina.py después del arranque:
+        # se imprimen las dos tablas una vez, aunque el JSON ya tuviera los mismos datos.
+        if not SALIDAS_WEB_INICIALES_ENVIADAS:
+            logger.info("🟢 Primera data web recibida: enviando salida_ronda y salida_low.")
+            await disparar_salida_ronda_si_cambio(bot)
+            await disparar_salida_low_si_cambio(bot)
+            SALIDAS_WEB_INICIALES_ENVIADAS = True
+            return
+
+        # Después de la primera publicación, cada salida responde únicamente
+        # a la lista que administra.
+        if cambio_r60_plus:
             await disparar_salida_ronda_si_cambio(bot)
 
-        if listas_han_cambiado(vieja_r60_menos, nuevos_r60_menos):
-            async with json_lock:
-                MEMORIA_JEFES["raid_60_menos"] = nuevos_r60_menos
-                guardar_memoria_a_json_completa()
+        if cambio_r60_menos:
             await disparar_salida_low_si_cambio(bot)
 
     except Exception as e:
@@ -629,14 +649,23 @@ async def on_message(message):
                             reg["fue_vivo"] = False
                         dict_combinado[nombre] = reg
 
+                nueva_r60_plus = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
+                cambio_r60_plus = listas_han_cambiado(actuales_r60_plus, nueva_r60_plus)
+
                 async with json_lock:
-                    MEMORIA_JEFES["raid_60_plus"] = limpiar_duplicados_por_nombre(list(dict_combinado.values()))
+                    MEMORIA_JEFES["raid_60_plus"] = nueva_r60_plus
                     guardar_memoria_a_json_completa()
                 
                 logger.info(f"💾 Memoria actualizada por entrada manual. Total en raid_60_plus: {len(MEMORIA_JEFES['raid_60_plus'])}")
                 
                 await disparar_salidas_manuales(bot, nuevos_registros)
-                await disparar_salida_ronda_si_cambio(bot)
+
+                # La entrada de texto/imagen alimenta 60+. Solo se vuelve a
+                # imprimir salida_ronda si realmente cambió esa lista.
+                if cambio_r60_plus:
+                    await disparar_salida_ronda_si_cambio(bot)
+                else:
+                    logger.info("ℹ️ Entrada manual sin cambios en raid_60_plus: no se imprime salida_ronda.")
 
         except Exception as e:
             logger.error(f"Error procesando entrada manual: {e}")
