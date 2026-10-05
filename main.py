@@ -43,6 +43,14 @@ ARCHIVO_JSON = "jefes_activos.json"
 # --- BLOQUEO ASÍNCRONO PARA EL JSON ---
 json_lock = asyncio.Lock()  # <-- 2. Bloqueo para lectura/escritura segura de archivos JSON
 
+# --- CONTROL DE SALIDA MA ---
+# Se reinicia junto con main.py. La primera entrada manual que contenga
+# Valakas, Antharas o Fafureon publica MA. Después, MA solo se publica
+# cuando cambia la FECHA de alguno de esos tres raids.
+MA_RAIDS = {"valakas", "antharas", "fafureon"}
+MA_INICIALIZADA = False
+MA_FECHAS_CONOCIDAS = {}
+
 # --- LISTA OFICIAL DE JEFES ÉPICOS (Los de la imagen) ---
 JEFES_EPICOS_IMAGEN = {
     "antharas", "fafureon", "freya", "frintezza", 
@@ -370,18 +378,64 @@ async def disparar_salida_low_si_cambio(bot_instance):
 # ==============================================================================
 # 🚀 DISPARADOR 2: ENTRADAS MANUALES (TEXTO / IMAGEN)
 # ==============================================================================
+def obtener_fecha_ma(item):
+    """Obtiene únicamente la fecha del registro de MA para poder detectar cambios."""
+    dt = item.get("datetime")
+    if isinstance(dt, datetime):
+        return dt.date()
+
+    dt_iso = item.get("datetime_iso")
+    if dt_iso:
+        try:
+            return datetime.fromisoformat(str(dt_iso)).date()
+        except Exception:
+            pass
+
+    tiempo_str = str(item.get("tiempo_str", "")).strip()
+    for formato in ("%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M"):
+        try:
+            return datetime.strptime(tiempo_str, formato).date()
+        except Exception:
+            pass
+
+    return None
+
 async def disparar_salidas_manuales(bot_instance, registros_ingresados):
+    global MA_INICIALIZADA, MA_FECHAS_CONOCIDAS
+
     logger.info("🚀 [Manual] Procesando salidas exclusivas para entradas manuales...")
     try:
-        wh_ma = {"valakas", "antharas", "fafureon"}
         datos_ma = [
-            j for j in registros_ingresados 
-            if str(j.get("nombre", "")).strip().lower() in wh_ma
+            j for j in registros_ingresados
+            if str(j.get("nombre", "")).strip().lower() in MA_RAIDS
         ]
 
         if datos_ma:
-            await salida_ma.ejecutar(bot_instance, limpiar_duplicados_por_nombre(datos_ma))
-            logger.info("✅ salida_ma ejecutada con éxito.")
+            datos_ma = limpiar_duplicados_por_nombre(datos_ma)
+
+            # Primera entrada después de cada reinicio: publica MA una vez.
+            publicar_ma = not MA_INICIALIZADA
+
+            # A partir de ahí, solo publica si cambió la FECHA de Valakas,
+            # Antharas o Fafureon. Cambios de hora/estado no disparan MA.
+            for item in datos_ma:
+                nombre = str(item.get("nombre", "")).strip().lower()
+                fecha_nueva = obtener_fecha_ma(item)
+                fecha_anterior = MA_FECHAS_CONOCIDAS.get(nombre)
+
+                if MA_INICIALIZADA and fecha_nueva != fecha_anterior:
+                    publicar_ma = True
+
+            if publicar_ma:
+                await salida_ma.ejecutar(bot_instance, datos_ma)
+                logger.info("✅ salida_ma ejecutada con éxito (primera entrada o cambio de fecha).")
+
+            # Actualizamos la memoria de fechas después de decidir la publicación.
+            for item in datos_ma:
+                nombre = str(item.get("nombre", "")).strip().lower()
+                MA_FECHAS_CONOCIDAS[nombre] = obtener_fecha_ma(item)
+
+            MA_INICIALIZADA = True
 
         if registros_ingresados:
             exclusiones = {"balrog", "electrical", "electrica"}
