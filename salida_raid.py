@@ -34,8 +34,8 @@ POS_Y = 590
 FILTRO_PUBLICAR_RAIDS = {
     "valakas":"si","antharas":"si","fafureon":"si","balrog":"no","electrical":"no",
     "baium":"si","zaken":"si","core":"si","orfen":"si","queenant":"si","frintezza":"si",
-    "freya":"si","zariche":"si","decarbia":"si","hekaton":"si","queenshyeed":"si",
-    "golkonda":"si","galaxia":"si","barakiel":"si","otros_60_mas":"si","otros_60_menos":"no"
+    "freya":"si","zariche":"si","decarbia":"no","hekaton":"no","queenshyeed":"no",
+    "golkonda":"no","galaxia":"no","barakiel":"no","otros_60_mas":"no","otros_60_menos":"no"
 }
 FILTRO_PUBLICAR_RAIDS_ANTES = {
     "valakas":"si","antharas":"si","fafureon":"si","balrog":"si","electrical":"si",
